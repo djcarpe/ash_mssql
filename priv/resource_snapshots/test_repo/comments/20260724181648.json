@@ -58,18 +58,18 @@
       "references": {
         "name": "special_name_fkey",
         "table": "posts",
-        "on_delete": "delete",
-        "on_update": "update",
-        "destination_attribute_generated": null,
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
         "destination_attribute_default": null,
+        "destination_attribute_generated": null,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": "delete",
+        "on_update": "update"
       },
       "primary_key?": false,
       "allow_nil?": true,
@@ -83,18 +83,18 @@
       "references": {
         "name": "comments_author_id_fkey",
         "table": "authors",
-        "on_delete": null,
-        "on_update": null,
-        "destination_attribute_generated": null,
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
         "destination_attribute_default": null,
+        "destination_attribute_generated": null,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": null,
+        "on_update": null
       },
       "primary_key?": false,
       "allow_nil?": true,
@@ -102,16 +102,16 @@
     }
   ],
   "table": "comments",
-  "hash": "0C5DF5868A1418A063F9268FC960FC2EFADC2AC5BA654BA339B4D395AA9D1D52",
+  "hash": "4090087A9D6F71298ABE633B67F2CF29FCD64FDE0E2CB076046412247FCAFA6B",
   "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "has_create_action": true,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "base_filter": null,
   "multitenancy": {
     "global": null,
     "attribute": null,
     "strategy": null
-  },
-  "base_filter": null,
-  "has_create_action": true,
-  "identities": [],
-  "custom_indexes": [],
-  "custom_statements": []
+  }
 }

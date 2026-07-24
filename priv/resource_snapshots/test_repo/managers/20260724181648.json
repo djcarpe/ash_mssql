@@ -58,18 +58,18 @@
       "references": {
         "name": "managers_organization_id_fkey",
         "table": "orgs",
-        "on_delete": null,
-        "on_update": null,
-        "destination_attribute_generated": null,
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
         "destination_attribute_default": null,
+        "destination_attribute_generated": null,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": null,
+        "on_update": null
       },
       "primary_key?": false,
       "allow_nil?": true,
@@ -77,15 +77,8 @@
     }
   ],
   "table": "managers",
-  "hash": "24926C4F6E37EC9154A2AFA56E0AE6471AA5A87A7C6CF2CAB99E8153899052DA",
+  "hash": "9B15766822A506A7D83F47E07AF552D010B97AE6B296FACE8790E43FC9F5C9BB",
   "repo": "Elixir.AshMssql.TestRepo",
-  "multitenancy": {
-    "global": null,
-    "attribute": null,
-    "strategy": null
-  },
-  "base_filter": null,
-  "has_create_action": true,
   "identities": [
     {
       "name": "uniq_code",
@@ -96,6 +89,13 @@
       "index_name": "managers_uniq_code_index"
     }
   ],
+  "has_create_action": true,
   "custom_indexes": [],
-  "custom_statements": []
+  "custom_statements": [],
+  "base_filter": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  }
 }

@@ -13,8 +13,8 @@
     {
       "default": "nil",
       "size": null,
-      "type": "boolean",
-      "source": "is_active",
+      "type": "bigint",
+      "source": "score",
       "references": null,
       "primary_key?": false,
       "allow_nil?": true,
@@ -24,39 +24,39 @@
       "default": "nil",
       "size": null,
       "type": "uuid",
-      "source": "organization_id",
+      "source": "resource_id",
       "references": {
-        "name": "users_organization_id_fkey",
-        "table": "orgs",
-        "on_delete": null,
-        "on_update": null,
-        "destination_attribute_generated": null,
-        "destination_attribute_default": null,
+        "name": "comment_ratings_resource_id_fkey",
+        "table": "comments",
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
+        "destination_attribute_default": "nil",
+        "destination_attribute_generated": false,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": null,
+        "on_update": null
       },
       "primary_key?": false,
       "allow_nil?": true,
       "generated?": false
     }
   ],
-  "table": "users",
-  "hash": "303DE231A8304D138B59BB8C2F0BDEC04B2EA4B5784D48951A9473532115F09B",
+  "table": "comment_ratings",
+  "hash": "8E722A7526294A10E244AE9E51E962868AF6CB691251A12C784ABBE64DBED278",
   "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "has_create_action": true,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "base_filter": null,
   "multitenancy": {
     "global": null,
     "attribute": null,
     "strategy": null
-  },
-  "base_filter": null,
-  "has_create_action": true,
-  "identities": [],
-  "custom_indexes": [],
-  "custom_statements": []
+  }
 }

@@ -178,18 +178,18 @@
       "references": {
         "name": "posts_organization_id_fkey",
         "table": "orgs",
-        "on_delete": null,
-        "on_update": null,
-        "destination_attribute_generated": null,
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
         "destination_attribute_default": null,
+        "destination_attribute_generated": null,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": null,
+        "on_update": null
       },
       "primary_key?": false,
       "allow_nil?": true,
@@ -203,18 +203,18 @@
       "references": {
         "name": "posts_author_id_fkey",
         "table": "authors",
-        "on_delete": null,
-        "on_update": null,
-        "destination_attribute_generated": null,
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
         "destination_attribute_default": null,
+        "destination_attribute_generated": null,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": null,
+        "on_update": null
       },
       "primary_key?": false,
       "allow_nil?": true,
@@ -222,15 +222,8 @@
     }
   ],
   "table": "posts",
-  "hash": "3E0B9CBC699CF3C00C86211D88DC5B7BD5FD30A65A3C3AC29B93DD95AE082A1C",
+  "hash": "097BF346819BB5037769A44029F34642690C7E788B097C3D0CD07FFCD43415E1",
   "repo": "Elixir.AshMssql.TestRepo",
-  "multitenancy": {
-    "global": null,
-    "attribute": null,
-    "strategy": null
-  },
-  "base_filter": "type = 'sponsored'",
-  "has_create_action": true,
   "identities": [
     {
       "name": "uniq_one_and_two",
@@ -242,6 +235,7 @@
       "index_name": "posts_uniq_one_and_two_index"
     }
   ],
+  "has_create_action": true,
   "custom_indexes": [
     {
       "message": "dude what the heck",
@@ -257,5 +251,11 @@
       "using": null
     }
   ],
-  "custom_statements": []
+  "custom_statements": [],
+  "base_filter": "type = 'sponsored'",
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  }
 }

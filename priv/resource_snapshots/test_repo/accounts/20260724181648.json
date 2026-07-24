@@ -28,18 +28,18 @@
       "references": {
         "name": "accounts_user_id_fkey",
         "table": "users",
-        "on_delete": null,
-        "on_update": null,
-        "destination_attribute_generated": null,
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
         "destination_attribute_default": null,
+        "destination_attribute_generated": null,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": null,
+        "on_update": null
       },
       "primary_key?": false,
       "allow_nil?": true,
@@ -47,16 +47,16 @@
     }
   ],
   "table": "accounts",
-  "hash": "92AFA7F057F7D34F3CFD225E614F270AFC2CC375176680041959D5966AC5E805",
+  "hash": "AB1E72520362D796B7A343037B836BF168423DC65F02B84E8DE4080007FED44C",
   "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "has_create_action": true,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "base_filter": null,
   "multitenancy": {
     "global": null,
     "attribute": null,
     "strategy": null
-  },
-  "base_filter": null,
-  "has_create_action": true,
-  "identities": [],
-  "custom_indexes": [],
-  "custom_statements": []
+  }
 }

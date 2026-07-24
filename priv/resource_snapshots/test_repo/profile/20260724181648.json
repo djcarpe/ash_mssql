@@ -28,18 +28,18 @@
       "references": {
         "name": "profile_author_id_fkey",
         "table": "authors",
-        "on_delete": null,
-        "on_update": null,
-        "destination_attribute_generated": null,
+        "primary_key?": true,
+        "destination_attribute": "id",
+        "deferrable": false,
         "destination_attribute_default": null,
+        "destination_attribute_generated": null,
         "multitenancy": {
           "global": null,
           "attribute": null,
           "strategy": null
         },
-        "destination_attribute": "id",
-        "primary_key?": true,
-        "deferrable": false
+        "on_delete": null,
+        "on_update": null
       },
       "primary_key?": false,
       "allow_nil?": true,
@@ -47,16 +47,16 @@
     }
   ],
   "table": "profile",
-  "hash": "4CB20004A75EA223AE5B01A5F4A7DDD8FDDB20C3DF050DE27FDFBC75A2BB5FF0",
+  "hash": "E95612A69B0BCA1ED6169F92A13549FBF5CCA26C1AE71004E37149DDB1B3E8A9",
   "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "has_create_action": true,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "base_filter": null,
   "multitenancy": {
     "global": null,
     "attribute": null,
     "strategy": null
-  },
-  "base_filter": null,
-  "has_create_action": true,
-  "identities": [],
-  "custom_indexes": [],
-  "custom_statements": []
+  }
 }

@@ -281,6 +281,7 @@ defmodule AshMssql.MigrationGenerator do
         deduped
         |> fetch_operations(opts)
         |> Enum.map(&add_order_to_operations/1)
+        |> sort_snapshots_by_references()
 
       snapshots = Enum.map(snapshots_with_operations, &elem(&1, 0))
 
@@ -315,6 +316,79 @@ defmodule AshMssql.MigrationGenerator do
           create_new_snapshot(snapshots, repo_name(repo), opts)
       end
     end)
+  end
+
+  # Order tables so that a referenced table is created before any table that
+  # references it. MSSQL creates foreign keys inline in `CREATE TABLE`, so the
+  # referenced table must already exist. The per-operation insertion sort
+  # (`sort_operations/2`) is order-dependent and does not re-sort when a
+  # dependency appears later, so we seed it with a topologically-sorted table
+  # order here. (Mutual/cyclic references cannot be satisfied by inline FKs and
+  # fall back to best-effort order.)
+  defp sort_snapshots_by_references(snapshots_with_operations) do
+    by_table =
+      Map.new(snapshots_with_operations, fn {snapshot, _ops} = pair -> {snapshot.table, pair} end)
+
+    deps =
+      Map.new(snapshots_with_operations, fn {snapshot, _ops} ->
+        referenced =
+          snapshot.attributes
+          |> Enum.map(fn attribute ->
+            case Map.get(attribute, :references) do
+              nil -> nil
+              references -> Map.get(references, :table)
+            end
+          end)
+          |> Enum.reject(&(is_nil(&1) or &1 == snapshot.table))
+          |> Enum.uniq()
+
+        {snapshot.table, referenced}
+      end)
+
+    deps
+    |> Map.keys()
+    |> topological_sort(deps)
+    |> Enum.map(&Map.get(by_table, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp topological_sort(tables, deps) do
+    {ordered, _visited} =
+      Enum.reduce(tables, {[], MapSet.new()}, fn table, {ordered, visited} ->
+        topo_visit(table, deps, ordered, visited, MapSet.new())
+      end)
+
+    # `ordered` is in referenced-first order: a referenced table always precedes
+    # any table that references it.
+    ordered
+  end
+
+  defp topo_visit(table, deps, ordered, visited, in_progress) do
+    cond do
+      MapSet.member?(visited, table) ->
+        {ordered, visited}
+
+      # Cycle: a referenced table transitively references us. Inline FKs cannot
+      # express this; stop descending and let best-effort order stand.
+      MapSet.member?(in_progress, table) ->
+        {ordered, visited}
+
+      true ->
+        in_progress = MapSet.put(in_progress, table)
+
+        {ordered, visited} =
+          deps
+          |> Map.get(table, [])
+          |> Enum.reduce({ordered, visited}, fn referenced, {ordered, visited} ->
+            if Map.has_key?(deps, referenced) do
+              topo_visit(referenced, deps, ordered, visited, in_progress)
+            else
+              {ordered, visited}
+            end
+          end)
+
+        {[table | ordered], MapSet.put(visited, table)}
+    end
   end
 
   defp add_order_to_operations({snapshot, operations}) do
