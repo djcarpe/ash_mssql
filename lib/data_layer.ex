@@ -851,7 +851,7 @@ defmodule AshMssql.DataLayer do
     {num_rows, records}
   end
 
-  defp upsert_table({table, _resource}, _resource), do: table
+  defp upsert_table({table, _resource}, _fallback), do: table
   defp upsert_table(_source, resource), do: AshMssql.DataLayer.Info.table(resource)
 
   # Builds the MERGE VALUES clause (`(@1, @2), (@3, @4)`) plus the ordered,
