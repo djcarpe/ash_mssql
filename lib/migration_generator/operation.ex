@@ -33,6 +33,21 @@ defmodule AshMssql.MigrationGenerator.Operation do
       end
     end
 
+    @doc """
+    Builds a filtered-index predicate that excludes rows where any key column is
+    NULL: `[a] IS NOT NULL AND [b] IS NOT NULL`.
+
+    MSSQL treats NULLs as equal in a UNIQUE index (only one NULL row allowed),
+    unlike Postgres/MySQL where multiple NULLs are permitted. Emitting unique
+    indexes as filtered indexes restores the Postgres/MySQL "NULLs are distinct"
+    behaviour. The predicate is a no-op for non-nullable columns.
+    """
+    def not_null_filter(keys) do
+      keys
+      |> List.wrap()
+      |> Enum.map_join(" AND ", fn key -> "[#{key}] IS NOT NULL" end)
+    end
+
     def on_delete(%{on_delete: on_delete}) when on_delete in [:delete, :nilify] do
       "on_delete: :#{on_delete}_all"
     end
@@ -487,12 +502,11 @@ defmodule AshMssql.MigrationGenerator.Operation do
 
       index_name = index_name || "#{table}_#{name}_index"
 
-      # if base_filter do
-      #  "create unique_index(:#{as_atom(table)}, [#{Enum.map_join(keys, ", ", &inspect/1)}], where: \"#{base_filter}\",
-      #  #{join(["name: \"#{index_name}\""])})"
-      # else
-      "create unique_index(:#{as_atom(table)}, [#{Enum.map_join(keys, ", ", &inspect/1)}], #{join(["name: \"#{index_name}\""])})"
-      # end
+      # Filtered unique index so multiple NULL rows are allowed (Postgres/MySQL
+      # semantics); see Helper.not_null_filter/1.
+      where = not_null_filter(keys)
+
+      "create unique_index(:#{as_atom(table)}, [#{Enum.map_join(keys, ", ", &inspect/1)}], #{join([option(:where, where), "name: \"#{index_name}\""])})"
     end
 
     def down(%{
@@ -584,12 +598,22 @@ defmodule AshMssql.MigrationGenerator.Operation do
       #    index
       #  end
 
+      # A unique custom index becomes a filtered index so multiple NULL rows are
+      # allowed (Postgres/MySQL semantics). Preserve any user-provided `where`.
+      where =
+        cond do
+          index.where && index.unique -> "(#{index.where}) AND #{not_null_filter(keys)}"
+          index.where -> index.where
+          index.unique -> not_null_filter(keys)
+          true -> nil
+        end
+
       opts =
         join([
           option(:name, index.name),
           option(:unique, index.unique),
           option(:using, index.using),
-          #    option(:where, index.where),
+          option(:where, where),
           option(:include, index.include)
         ])
 
@@ -683,12 +707,22 @@ defmodule AshMssql.MigrationGenerator.Operation do
       #    index
       #  end
 
+      # A unique custom index becomes a filtered index so multiple NULL rows are
+      # allowed (Postgres/MySQL semantics). Preserve any user-provided `where`.
+      where =
+        cond do
+          index.where && index.unique -> "(#{index.where}) AND #{not_null_filter(keys)}"
+          index.where -> index.where
+          index.unique -> not_null_filter(keys)
+          true -> nil
+        end
+
       opts =
         join([
           option(:name, index.name),
           option(:unique, index.unique),
           option(:using, index.using),
-          #    option(:where, index.where),
+          option(:where, where),
           option(:include, index.include)
         ])
 
@@ -775,12 +809,11 @@ defmodule AshMssql.MigrationGenerator.Operation do
 
       index_name = index_name || "#{table}_#{name}_index"
 
-      # if base_filter do
-      #  "create unique_index(:#{as_atom(table)}, [#{Enum.map_join(keys, ", ", &inspect/1)}], where: \"#{base_filter}\",
-      #  #{join(["name: \"#{index_name}\""])})"
-      # else
-      "create unique_index(:#{as_atom(table)}, [#{Enum.map_join(keys, ", ", &inspect/1)}], #{join(["name: \"#{index_name}\""])})"
-      # end
+      # Filtered unique index so multiple NULL rows are allowed (Postgres/MySQL
+      # semantics); see Helper.not_null_filter/1.
+      where = not_null_filter(keys)
+
+      "create unique_index(:#{as_atom(table)}, [#{Enum.map_join(keys, ", ", &inspect/1)}], #{join([option(:where, where), "name: \"#{index_name}\""])})"
     end
   end
 end

@@ -250,23 +250,20 @@ defmodule AshMssql.SqlImplementation do
 
         :|| ->
           # Elixir `||`: return left when left is truthy, else right.
-          # MSSQL has no boolean truthiness of arbitrary expressions and no
-          # `LIKE FALSE` idiom, so we treat NULL and 0/false (BIT) as falsy via
-          # `COALESCE(left, 0) = 0`. Non-numeric operands (e.g. strings) are not
-          # expected here; those uses would need a type-specific check.
           AshSql.Expr.dynamic_expr(
             query,
             %Ash.Query.Function.Fragment{
               embedded?: pred_embedded?,
-              arguments: [
-                raw: "CASE WHEN (COALESCE(",
-                casted_expr: left_expr,
-                raw: ", 0) = 0) THEN ",
-                casted_expr: right_expr,
-                raw: " ELSE ",
-                casted_expr: left_expr,
-                raw: " END"
-              ]
+              arguments:
+                [raw: "CASE WHEN "] ++
+                  falsy_fragment(left_expr, left_type) ++
+                  [
+                    raw: " THEN ",
+                    casted_expr: right_expr,
+                    raw: " ELSE ",
+                    casted_expr: left_expr,
+                    raw: " END"
+                  ]
             },
             bindings,
             embedded?,
@@ -280,15 +277,16 @@ defmodule AshMssql.SqlImplementation do
             query,
             %Ash.Query.Function.Fragment{
               embedded?: pred_embedded?,
-              arguments: [
-                raw: "CASE WHEN (COALESCE(",
-                casted_expr: left_expr,
-                raw: ", 0) = 0) THEN ",
-                casted_expr: left_expr,
-                raw: " ELSE ",
-                casted_expr: right_expr,
-                raw: " END"
-              ]
+              arguments:
+                [raw: "CASE WHEN "] ++
+                  falsy_fragment(left_expr, left_type) ++
+                  [
+                    raw: " THEN ",
+                    casted_expr: left_expr,
+                    raw: " ELSE ",
+                    casted_expr: right_expr,
+                    raw: " END"
+                  ]
             },
             bindings,
             embedded?,
@@ -298,6 +296,19 @@ defmodule AshMssql.SqlImplementation do
       end
 
     {:ok, expr, acc}
+  end
+
+  # Fragment arguments for an Elixir-truthiness "is falsy" test on `expr`.
+  # In Elixir only `nil` and `false` are falsy (0, "" etc. are truthy), so the
+  # predicate is `IS NULL` for every type, plus `= 0` (false) for booleans (BIT).
+  # Booleans are the only type with a SQL "false" value; casting other types to
+  # a number (e.g. a string) would raise a conversion error on MSSQL.
+  defp falsy_fragment(expr, :boolean) do
+    [raw: "(", casted_expr: expr, raw: " IS NULL OR ", casted_expr: expr, raw: " = 0)"]
+  end
+
+  defp falsy_fragment(expr, _type) do
+    [raw: "(", casted_expr: expr, raw: " IS NULL)"]
   end
 
   @impl true

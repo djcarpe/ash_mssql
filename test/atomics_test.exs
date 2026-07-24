@@ -4,7 +4,10 @@ defmodule AshMssql.AtomicsTest do
 
   import Ash.Expr
 
-  # no upserts for now. hopefully later
+  # Atomic expressions in the upsert UPDATE clause are not yet supported on
+  # MSSQL: upsert is implemented via a raw MERGE (Ecto's Tds adapter rejects
+  # on_conflict), and atomic expressions are not rendered into MERGE's UPDATE
+  # SET. See `AshMssql.DataLayer.can?/2` ({:atomic, :upsert} -> false).
   @tag :skip
   test "atomics work on upserts" do
     id = Ash.UUID.generate()

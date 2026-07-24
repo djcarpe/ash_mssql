@@ -389,7 +389,7 @@ defmodule AshMssql.DataLayer do
   def can?(_, :composite_primary_key), do: true
   def can?(_, {:atomic, :update}), do: true
   def can?(_, {:atomic, :upsert}), do: false
-  def can?(_, :upsert), do: false
+  def can?(_, :upsert), do: true
   def can?(_, :changeset_filter), do: true
 
   def can?(resource, {:join, other_resource}) do
@@ -735,7 +735,13 @@ defmodule AshMssql.DataLayer do
 
       ecto_changesets = Enum.map(changesets, & &1.attributes)
       resource_for_returning = if options.return_records?, do: resource, else: nil
-      result = insert_all_returning(source, ecto_changesets, repo, resource_for_returning, opts)
+
+      result =
+        if options[:upsert?] do
+          upsert_all_returning(source, resource, ecto_changesets, options, repo, opts)
+        else
+          insert_all_returning(source, ecto_changesets, repo, resource_for_returning, opts)
+        end
 
       case result do
         {_, nil} ->
@@ -772,49 +778,109 @@ defmodule AshMssql.DataLayer do
     repo.insert_all(source, entries, opts)
   end
 
-  defp insert_all_returning(source, entries, repo, resource, opts) do
-    {count, nil} = repo.insert_all(source, entries, opts)
+  defp insert_all_returning(source, entries, repo, _resource, opts) do
+    # MSSQL supports the OUTPUT clause (the RETURNING-equivalent), which Ecto's
+    # Tds adapter exposes via `:returning`. This gives Postgres-parity batch
+    # inserts that return the inserted rows directly — including server-generated
+    # identity/uuid keys — instead of a fragile SCOPE_IDENTITY()/reload round-trip
+    # (SCOPE_IDENTITY() is batch-scoped and would be NULL on a separate query).
+    repo.insert_all(source, entries, Keyword.put(opts, :returning, true))
+  end
 
-    # Can't work if pkey is composed since Ecto doesn't know to build `where {k1, k2} in ^array` requests
-    pkey = Ash.Resource.Info.primary_key(resource) |> Enum.at(0)
-    keys_to_reload = entries |> Enum.map(&Map.get(&1, pkey)) |> Enum.filter(&(!is_nil(&1)))
+  # Ecto's Tds adapter only supports `on_conflict: :raise`, so upsert cannot go
+  # through `insert_all/3`. Instead we emit a MSSQL `MERGE ... OUTPUT` statement,
+  # the native "insert-or-update" primitive, giving parity with the Postgres
+  # `INSERT ... ON CONFLICT ... RETURNING` upsert.
+  #
+  # Known limitations vs Postgres: atomic expressions in the update clause
+  # (`{:atomic, :upsert}`) are not supported (see `can?/2`); the update assigns
+  # the incoming values directly.
+  defp upsert_all_returning(source, resource, entries, options, repo, opts) do
+    table = upsert_table(source, resource)
+    prefix = opts[:prefix]
+    qualified_table = if prefix, do: "[#{prefix}].[#{table}]", else: "[#{table}]"
 
-    result =
-      case {count, pkey, keys_to_reload} do
-        {0, _, _} ->
-          nil
+    columns =
+      entries
+      |> Enum.flat_map(&Map.keys/1)
+      |> Enum.uniq()
 
-        {1, nil, _} ->
-          # no pkey, one record, let's hope we have all fields... try our best and pray...
-          # Is there a good way to manage that case ?
-          params = entries |> Enum.at(0) |> Map.to_list()
+    keys = options[:upsert_keys] || Ash.Resource.Info.primary_key(resource)
 
-          Ecto.Query.from(s in source, where: ^params)
-          |> repo.all()
+    update_fields =
+      (options[:upsert_fields] || columns -- keys)
+      |> Enum.filter(&(&1 in columns))
+      |> Enum.reject(&(&1 in keys))
 
-        {1, _, []} ->
-          # one record with pkey, we can probably count on LAST_INSERT_ID()
-          Ecto.Query.from(s in source, where: field(s, ^pkey) == fragment("LAST_INSERT_ID()"))
-          |> repo.all()
+    # OUTPUT the full row so we can load structs back (parity with RETURNING).
+    output_columns = resource.__schema__(:fields) |> Enum.map(&resource.__schema__(:field_source, &1))
 
-        {_, nil, _} ->
-          # Can't work without a pkey even if we have enough fields to reload
-          # since Ecto doesn't know to build `where {k1, k2} in ^array`
-          # requests
-          nil
+    {values_sql, params} = upsert_values(entries, columns, resource, repo)
 
-        {_, _, _} ->
-          unordered =
-            Ecto.Query.from(s in source, where: field(s, ^pkey) in ^keys_to_reload)
-            |> repo.all()
+    col_list = Enum.map_join(columns, ", ", &"[#{&1}]")
 
-          indexed = unordered |> Enum.group_by(&Map.get(&1, pkey))
+    on_clause = Enum.map_join(keys, " AND ", &"target.[#{&1}] = source.[#{&1}]")
 
-          keys_to_reload
-          |> Enum.map(&(Map.get(indexed, &1) |> Enum.at(0)))
+    matched_clause =
+      case update_fields do
+        [] ->
+          # Nothing to update on match: assign a key to itself so matched rows
+          # still surface through OUTPUT.
+          "WHEN MATCHED THEN UPDATE SET target.[#{Enum.at(keys, 0)}] = target.[#{Enum.at(keys, 0)}]"
+
+        fields ->
+          "WHEN MATCHED THEN UPDATE SET " <>
+            Enum.map_join(fields, ", ", &"target.[#{&1}] = source.[#{&1}]")
       end
 
-    {count, result}
+    output_clause = Enum.map_join(output_columns, ", ", &"INSERTED.[#{&1}]")
+
+    sql = """
+    MERGE INTO #{qualified_table} WITH (HOLDLOCK) AS target
+    USING (VALUES #{values_sql}) AS source (#{col_list})
+    ON (#{on_clause})
+    #{matched_clause}
+    WHEN NOT MATCHED BY TARGET THEN INSERT (#{col_list}) VALUES (#{Enum.map_join(columns, ", ", &"source.[#{&1}]")})
+    OUTPUT #{output_clause};
+    """
+
+    %{columns: result_columns, rows: rows, num_rows: num_rows} = repo.query!(sql, params)
+
+    records = Enum.map(rows, fn row -> repo.load(resource, {result_columns, row}) end)
+
+    {num_rows, records}
+  end
+
+  defp upsert_table({table, _resource}, _resource), do: table
+  defp upsert_table(_source, resource), do: AshMssql.DataLayer.Info.table(resource)
+
+  # Builds the MERGE VALUES clause (`(@1, @2), (@3, @4)`) plus the ordered,
+  # adapter-dumped parameter list.
+  defp upsert_values(entries, columns, resource, repo) do
+    adapter = repo.__adapter__()
+
+    {rows, params, _idx} =
+      Enum.reduce(entries, {[], [], 1}, fn entry, {rows_acc, params_acc, idx} ->
+        {placeholders, params_acc, idx} =
+          Enum.reduce(columns, {[], params_acc, idx}, fn column, {ph, pacc, i} ->
+            value = Map.get(entry, column)
+            dumped = upsert_dump(adapter, resource, column, value)
+            {["@#{i}" | ph], [dumped | pacc], i + 1}
+          end)
+
+        {["(#{placeholders |> Enum.reverse() |> Enum.join(", ")})" | rows_acc], params_acc, idx}
+      end)
+
+    {rows |> Enum.reverse() |> Enum.join(", "), Enum.reverse(params)}
+  end
+
+  defp upsert_dump(adapter, resource, column, value) do
+    type = resource.__schema__(:type, column)
+
+    case Ecto.Type.adapter_dump(adapter, type, value) do
+      {:ok, dumped} -> dumped
+      :error -> value
+    end
   end
 
   # defp upsert_set(resource, changesets, options) do
@@ -1324,30 +1390,43 @@ defmodule AshMssql.DataLayer do
   end
 
   # @impl true
-  # def upsert(resource, changeset, keys \\ nil) do
-  #   keys = keys || Ash.Resource.Info.primary_key(keys)
+  @impl true
+  def upsert(resource, changeset, keys) do
+    keys = keys || Ash.Resource.Info.primary_key(resource)
 
-  #   explicitly_changing_attributes =
-  #     Map.keys(changeset.attributes) -- Map.get(changeset, :defaults, []) -- keys
+    update_defaults = update_defaults(resource)
 
-  #   upsert_fields =
-  #     changeset.context[:private][:upsert_fields] || explicitly_changing_attributes
+    # Fields to update on conflict: everything explicitly changing, plus
+    # update_defaults (e.g. updated_at), minus attributes that were merely
+    # defaulted (e.g. created_at, so it is preserved) and the conflict keys.
+    explicitly_changing_attributes =
+      changeset.attributes
+      |> Map.keys()
+      |> Enum.concat(Keyword.keys(update_defaults))
+      |> Kernel.--(Map.get(changeset, :defaults, []))
+      |> Kernel.--(keys)
 
-  #   case bulk_create(resource, [changeset], %{
-  #          single?: true,
-  #          upsert?: true,
-  #          tenant: changeset.tenant,
-  #          upsert_keys: keys,
-  #          upsert_fields: upsert_fields,
-  #          return_records?: true
-  #        }) do
-  #     {:ok, [result]} ->
-  #       {:ok, result}
+    upsert_fields =
+      changeset.context[:private][:upsert_fields] || explicitly_changing_attributes
 
-  #     {:error, error} ->
-  #       {:error, error}
-  #   end
-  # end
+    case bulk_create(resource, [changeset], %{
+           single?: true,
+           upsert?: true,
+           tenant: changeset.tenant,
+           upsert_keys: keys,
+           upsert_fields: upsert_fields,
+           return_records?: true
+         }) do
+      {:ok, [result]} ->
+        {:ok, result}
+
+      {:ok, []} ->
+        {:ok, nil}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
 
   # defp conflict_target(resource, keys) do
   #   if Ash.Resource.Info.base_filter(resource) do
@@ -1369,64 +1448,64 @@ defmodule AshMssql.DataLayer do
   #   end
   # end
 
-  # defp update_defaults(resource) do
-  #   attributes =
-  #     resource
-  #     |> Ash.Resource.Info.attributes()
-  #     |> Enum.reject(&is_nil(&1.update_default))
+  defp update_defaults(resource) do
+    attributes =
+      resource
+      |> Ash.Resource.Info.attributes()
+      |> Enum.reject(&is_nil(&1.update_default))
 
-  #   attributes
-  #   |> static_defaults()
-  #   |> Enum.concat(lazy_matching_defaults(attributes))
-  #   |> Enum.concat(lazy_non_matching_defaults(attributes))
-  # end
+    attributes
+    |> static_defaults()
+    |> Enum.concat(lazy_matching_defaults(attributes))
+    |> Enum.concat(lazy_non_matching_defaults(attributes))
+  end
 
-  # defp static_defaults(attributes) do
-  #   attributes
-  #   |> Enum.reject(&get_default_fun(&1))
-  #   |> Enum.map(&{&1.name, &1.update_default})
-  # end
+  defp static_defaults(attributes) do
+    attributes
+    |> Enum.reject(&get_default_fun(&1))
+    |> Enum.map(&{&1.name, &1.update_default})
+  end
 
-  # defp lazy_non_matching_defaults(attributes) do
-  #   attributes
-  #   |> Enum.filter(&(!&1.match_other_defaults? && get_default_fun(&1)))
-  #   |> Enum.map(fn attribute ->
-  #     default_value =
-  #       case attribute.update_default do
-  #         function when is_function(function) ->
-  #           function.()
+  defp lazy_non_matching_defaults(attributes) do
+    attributes
+    |> Enum.filter(&(!&1.match_other_defaults? && get_default_fun(&1)))
+    |> Enum.map(fn attribute ->
+      default_value =
+        case attribute.update_default do
+          function when is_function(function) ->
+            function.()
 
-  #         {m, f, a} when is_atom(m) and is_atom(f) and is_list(a) ->
-  #           apply(m, f, a)
-  #       end
+          {m, f, a} when is_atom(m) and is_atom(f) and is_list(a) ->
+            apply(m, f, a)
+        end
 
-  #     {attribute.name, default_value}
-  #   end)
-  # end
+      {attribute.name, default_value}
+    end)
+  end
 
-  # defp lazy_matching_defaults(attributes) do
-  #   attributes
-  #   |> Enum.filter(&(&1.match_other_defaults? && get_default_fun(&1)))
-  #   |> Enum.group_by(& &1.update_default)
-  #   |> Enum.flat_map(fn {default_fun, attributes} ->
-  #     default_value =
-  #       case default_fun do
-  #         function when is_function(function) ->
-  #           function.()
+  defp lazy_matching_defaults(attributes) do
+    attributes
+    |> Enum.filter(&(&1.match_other_defaults? && get_default_fun(&1)))
+    |> Enum.group_by(& &1.update_default)
+    |> Enum.flat_map(fn {default_fun, attributes} ->
+      default_value =
+        case default_fun do
+          function when is_function(function) ->
+            function.()
 
-  #         {m, f, a} when is_atom(m) and is_atom(f) and is_list(a) ->
-  #           apply(m, f, a)
-  #       end
+          {m, f, a} when is_atom(m) and is_atom(f) and is_list(a) ->
+            apply(m, f, a)
+        end
 
-  #     Enum.map(attributes, &{&1.name, default_value})
-  #   end)
-  # end
+      Enum.map(attributes, &{&1.name, default_value})
+    end)
+  end
 
-  # defp get_default_fun(attribute) do
-  #   if is_function(attribute.update_default) or match?({_, _, _}, attribute.update_default) do
-  #     attribute.update_default
-  #   end
-  # end
+  defp get_default_fun(attribute) do
+    if is_function(attribute.update_default) or match?({_, _, _}, attribute.update_default) do
+      attribute.update_default
+    end
+  end
 
   @impl true
   def update(resource, changeset) do

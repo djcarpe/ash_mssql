@@ -21,8 +21,6 @@ defmodule AshMssql.BulkCreateTest do
                |> Enum.sort_by(fn {:ok, result} -> result.title end)
     end
 
-    # no upserts for now. hopefully later
-    @tag :skip
     test "bulk creates can upsert" do
       assert [
                {:ok, %{title: "fred", uniq_one: "one", uniq_two: "two", price: 10}},

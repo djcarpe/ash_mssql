@@ -94,6 +94,7 @@ defmodule AshMssql.TestRepo.Migrations.MigrateResources1 do
     end
 
     create unique_index(:post_links, [:source_post_id, :destination_post_id],
+             where: "[source_post_id] IS NOT NULL AND [destination_post_id] IS NOT NULL",
              name: "post_links_unique_link_index"
            )
 
@@ -108,7 +109,10 @@ defmodule AshMssql.TestRepo.Migrations.MigrateResources1 do
       add :id, :uuid, null: false, primary_key: true
     end
 
-    create unique_index(:managers, [:code], name: "managers_uniq_code_index")
+    create unique_index(:managers, [:code],
+             where: "[code] IS NOT NULL",
+             name: "managers_uniq_code_index"
+           )
 
     create table(:integer_posts, primary_key: false) do
       add :title, :string
@@ -147,9 +151,15 @@ defmodule AshMssql.TestRepo.Migrations.MigrateResources1 do
       add :id, :uuid, null: false, primary_key: true
     end
 
-    create index(:posts, ["uniq_custom_one", "uniq_custom_two"], unique: true)
+    create index(:posts, ["uniq_custom_one", "uniq_custom_two"],
+             unique: true,
+             where: "[uniq_custom_one] IS NOT NULL AND [uniq_custom_two] IS NOT NULL"
+           )
 
-    create unique_index(:posts, [:uniq_one, :uniq_two], name: "posts_uniq_one_and_two_index")
+    create unique_index(:posts, [:uniq_one, :uniq_two],
+             where: "[uniq_one] IS NOT NULL AND [uniq_two] IS NOT NULL",
+             name: "posts_uniq_one_and_two_index"
+           )
 
     create table(:accounts, primary_key: false) do
       add :user_id, references(:users, column: :id, name: "accounts_user_id_fkey", type: :uuid)

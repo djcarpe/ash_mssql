@@ -35,8 +35,6 @@ defmodule AshMssql.Test.UniqueIdentityTest do
                  end
   end
 
-  # no upserts for now. hopefully later
-  @tag :skip
   test "a unique constraint can be used to upsert when the resource has a base filter" do
     post =
       Post

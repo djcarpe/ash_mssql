@@ -108,9 +108,11 @@ defmodule AshMssql.MigrationGeneratorTest do
       # the migration creates the table
       assert file_contents =~ "create table(:posts, primary_key: false) do"
 
-      # the migration sets up the custom_indexes
+      # the migration sets up the custom_indexes. Unique indexes are emitted as
+      # filtered indexes (`where: ... IS NOT NULL`) so MSSQL allows multiple NULL
+      # rows, matching Postgres/MySQL "NULLs are distinct" semantics.
       assert file_contents =~
-               ~S{create index(:posts, ["id"], name: "test_unique_index", unique: true)}
+               ~S{create index(:posts, ["id"], name: "test_unique_index", unique: true, where: "[id] IS NOT NULL")}
 
       assert file_contents =~ ~S{create index(:posts, ["id"]}
 
@@ -131,16 +133,19 @@ defmodule AshMssql.MigrationGeneratorTest do
       # the migration adds custom attributes
       assert file_contents =~ ~S[add :second_title, :varchar, size: 16]
 
-      # the migration creates unique_indexes based on the identities of the resource
-      assert file_contents =~ ~S{create unique_index(:posts, [:title], name: "posts_title_index")}
+      # the migration creates unique_indexes based on the identities of the
+      # resource, emitted as filtered indexes (`where: ... IS NOT NULL`) for
+      # MSSQL NULL-tolerance (Postgres/MySQL "NULLs are distinct" semantics)
+      assert file_contents =~
+               ~S{create unique_index(:posts, [:title], where: "[title] IS NOT NULL", name: "posts_title_index")}
 
       # the migration creates unique_indexes based on the identities of the resource
       assert file_contents =~
-               ~S{create unique_index(:posts, [:title, :second_title], name: "posts_thing_index")}
+               ~S{create unique_index(:posts, [:title, :second_title], where: "[title] IS NOT NULL AND [second_title] IS NOT NULL", name: "posts_thing_index")}
 
       # the migration creates unique_indexes using the `source` on the attributes of the identity on the resource
       assert file_contents =~
-               ~S{create unique_index(:posts, [:title, :t_w_s], name: "posts_thing_with_source_index")}
+               ~S{create unique_index(:posts, [:title, :t_w_s], where: "[title] IS NOT NULL AND [t_w_s] IS NOT NULL", name: "posts_thing_with_source_index")}
     end
   end
 

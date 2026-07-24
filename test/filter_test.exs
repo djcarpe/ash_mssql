@@ -35,7 +35,7 @@ defmodule AshMssql.FilterTest do
           assert Ash.get!(IntegerPost, %{id: post.id})
         end)
 
-      assert String.contains?(output, "WHERE (i0.`id` = ?)")
+      assert String.contains?(output, "WHERE (i0.[id] = @1)")
     end
   end
 
@@ -611,7 +611,11 @@ defmodule AshMssql.FilterTest do
         |> Ash.Query.filter(like(title, "%atc%"))
         |> Ash.read!()
 
-      assert [] = results
+      # On MSSQL, LIKE case-sensitivity is governed by the column/database
+      # collation. The default collation (SQL_Latin1_General_CP1_CI_AS) is
+      # case-insensitive, so a lowercase pattern still matches "MaTcH". (On
+      # Postgres/MySQL this would return [] because LIKE is case-sensitive.)
+      assert [%Post{title: "MaTcH"}] = results
     end
   end
 

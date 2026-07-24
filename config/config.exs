@@ -29,7 +29,7 @@ if Mix.env() == :test do
     log_stacktrace_mfa: fn t, _, _ -> t end,
     pool: Ecto.Adapters.SQL.Sandbox,
     # sobelow_skip ["Config.Secrets"]
-    password: "YourStrong@Passw0rd"
+    password: "AdminFor278"
 
   config :ash_mssql, AshMssql.TestRepo, migration_primary_key: [name: :id, type: :binary_id]
 
@@ -40,7 +40,7 @@ if Mix.env() == :test do
     port: 1433
 
   # sobelow_skip ["Config.Secrets"]
-  config :ash_mssql, AshMssql.TestNoSandboxRepo, password: "YourStrong@Passw0rd"
+  config :ash_mssql, AshMssql.TestNoSandboxRepo, password: "AdminFor278"
 
   config :ash_mssql, AshMssql.TestNoSandboxRepo,
     migration_primary_key: [name: :id, type: :binary_id]
