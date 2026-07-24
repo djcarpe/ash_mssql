@@ -11,7 +11,7 @@ defmodule AshMssql.CustomIndex do
     :message
   ]
 
-  defstruct @fields
+  defstruct @fields ++ [__spark_metadata__: nil]
 
   def fields, do: @fields
 

@@ -8,7 +8,7 @@ defmodule AshMssql.Statement do
     :code?
   ]
 
-  defstruct @fields
+  defstruct @fields ++ [__spark_metadata__: nil]
 
   def fields, do: @fields
 

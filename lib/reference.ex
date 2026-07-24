@@ -1,6 +1,14 @@
 defmodule AshMssql.Reference do
   @moduledoc "Represents the configuration of a reference (i.e foreign key)."
-  defstruct [:relationship, :on_delete, :on_update, :name, :deferrable, ignore?: false]
+  defstruct [
+    :relationship,
+    :on_delete,
+    :on_update,
+    :name,
+    :deferrable,
+    ignore?: false,
+    __spark_metadata__: nil
+  ]
 
   def schema do
     [
