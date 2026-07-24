@@ -1,0 +1,964 @@
+
+14:17:58.603 [info] Application logger started at :nonode@nohost
+
+14:17:58.608 [info] Application xp_mime started at :nonode@nohost
+
+14:17:58.608 [info] Application xp_hpax started at :nonode@nohost
+
+14:17:58.608 [info] Application crypto started at :nonode@nohost
+
+14:17:58.608 [info] Application asn1 started at :nonode@nohost
+
+14:17:58.608 [info] Application public_key started at :nonode@nohost
+
+14:17:58.618 [debug] Child :ssl_handler of Supervisor :logger_sup started
+Pid: #PID<0.104.0>
+Start Call: :logger_olp.start_link(:logger_std_h_ssl_handler, :logger_h_common, %{id: :ssl_handler, module: :logger_std_h, config: %{type: :standard_io, filesync_repeat_interval: :no_repeat}, level: :debug, filter_default: :stop, filters: [], formatter: {:ssl_logger, %{}}}, %{})
+Restart: :temporary
+Shutdown: 2000
+Type: :worker
+
+14:17:58.634 [info] Child :ssl_pem_cache of Supervisor :ssl_admin_sup started
+Pid: #PID<0.108.0>
+Start Call: :ssl_pem_cache.start_link([])
+Restart: :permanent
+Shutdown: 4000
+Type: :worker
+
+14:17:58.647 [info] Child :ssl_manager of Supervisor :ssl_admin_sup started
+Pid: #PID<0.109.0>
+Start Call: :ssl_manager.start_link([])
+Restart: :permanent
+Shutdown: 4000
+Type: :worker
+
+14:17:58.652 [info] Child :tls_client_ticket_store of Supervisor :ssl_admin_sup started
+Pid: #PID<0.110.0>
+Start Call: :tls_client_ticket_store.start_link(1000, 7200)
+Restart: :permanent
+Shutdown: 4000
+Type: :worker
+
+14:17:58.652 [info] Child :ssl_admin_sup of Supervisor :ssl_sup started
+Pid: #PID<0.107.0>
+Start Call: :ssl_admin_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.660 [info] Child :tls_connection_sup of Supervisor :tls_sup started
+Pid: #PID<0.113.0>
+Start Call: :tls_connection_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.665 [info] Child :ssl_listen_tracker_sup of Supervisor :tls_server_sup started
+Pid: #PID<0.115.0>
+Start Call: :ssl_listen_tracker_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.667 [info] Child :tls_server_session_ticket of Supervisor :tls_server_sup started
+Pid: #PID<0.116.0>
+Start Call: :tls_server_session_ticket_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.671 [info] Child :ssl_server_session_cache_sup of Supervisor :tls_server_sup started
+Pid: #PID<0.117.0>
+Start Call: :ssl_server_session_cache_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.673 [info] Child :ssl_upgrade_server_session_cache_sup of Supervisor :tls_server_sup started
+Pid: #PID<0.118.0>
+Start Call: :ssl_upgrade_server_session_cache_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.674 [info] Child :tls_server_sup of Supervisor :tls_sup started
+Pid: #PID<0.114.0>
+Start Call: :tls_server_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.674 [info] Child :tls_sup of Supervisor :ssl_connection_sup started
+Pid: #PID<0.112.0>
+Start Call: :tls_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.678 [info] Child :dtls_connection_sup of Supervisor :dtls_sup started
+Pid: #PID<0.120.0>
+Start Call: :dtls_connection_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.683 [info] Child :dtls_listener_sup of Supervisor :dtls_server_sup started
+Pid: #PID<0.122.0>
+Start Call: :dtls_listener_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.685 [info] Child :dtls_server_session_cache_sup of Supervisor :dtls_server_sup started
+Pid: #PID<0.123.0>
+Start Call: :dtls_server_session_cache_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.685 [info] Child :dtls_server_sup of Supervisor :dtls_sup started
+Pid: #PID<0.121.0>
+Start Call: :dtls_server_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.685 [info] Child :dtls_sup of Supervisor :ssl_connection_sup started
+Pid: #PID<0.119.0>
+Start Call: :dtls_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.685 [info] Child :ssl_connection_sup of Supervisor :ssl_sup started
+Pid: #PID<0.111.0>
+Start Call: :ssl_connection_sup.start_link()
+Restart: :permanent
+Shutdown: 4000
+Type: :supervisor
+
+14:17:58.685 [info] Application ssl started at :nonode@nohost
+
+14:17:58.689 [info] Application xp_mint started at :nonode@nohost
+
+14:17:58.689 [info] Application xp_nimble_options started at :nonode@nohost
+
+14:17:58.704 [info] Child XPNimblePool.TaskSupervisor of Supervisor #PID<0.129.0> (Supervisor.Default) started
+Pid: #PID<0.130.0>
+Start Call: Task.Supervisor.start_link([name: XPNimblePool.TaskSupervisor])
+Restart: :permanent
+Shutdown: :infinity
+Type: :supervisor
+
+14:17:58.704 [info] Application xp_nimble_pool started at :nonode@nohost
+
+14:17:58.713 [info] Child :telemetry_handler_table of Supervisor :telemetry_sup started
+Pid: #PID<0.134.0>
+Start Call: :telemetry_handler_table.start_link()
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.713 [info] Application xp_telemetry started at :nonode@nohost
+
+14:17:58.713 [info] Application xp_finch started at :nonode@nohost
+
+14:17:58.783 [info] Child XPReq.Finch.PIDPartition0 of Supervisor XPReq.Finch started
+Pid: #PID<0.140.0>
+Start Call: Registry.Partition.start_link(XPReq.Finch.PIDPartition0, {:duplicate, XPReq.Finch, 0, 1, XPReq.Finch.KeyPartition0, XPReq.Finch.PIDPartition0, [], false})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.783 [info] Child XPReq.Finch of Supervisor XPReq.Finch.Supervisor started
+Pid: #PID<0.139.0>
+Start Call: Registry.start_link([keys: :duplicate, name: XPReq.Finch, meta: [config: %{pools: %{}, registry_name: XPReq.Finch, supervisor_name: XPReq.Finch.PoolSupervisor, manager_name: XPReq.Finch.PoolManager, default_pool_config: %{count: 1, size: 50, mod: XPFinch.HTTP1.Pool, conn_opts: [protocols: [:http1], transport_opts: [keepalive: true, nodelay: true, timeout: 5000], ssl_key_log_file_device: nil], pool_max_idle_time: :infinity, conn_max_idle_time: :infinity, start_pool_metrics?: false}}]])
+Restart: :permanent
+Shutdown: :infinity
+Type: :supervisor
+
+14:17:58.783 [info] Child XPReq.Finch.PoolSupervisor of Supervisor XPReq.Finch.Supervisor started
+Pid: #PID<0.141.0>
+Start Call: DynamicSupervisor.start_link([name: XPReq.Finch.PoolSupervisor, strategy: :one_for_one])
+Restart: :permanent
+Shutdown: :infinity
+Type: :supervisor
+
+14:17:58.783 [info] Child XPFinch.PoolManager of Supervisor XPReq.Finch.Supervisor started
+Pid: #PID<0.142.0>
+Start Call: XPFinch.PoolManager.start_link(%{pools: %{}, registry_name: XPReq.Finch, supervisor_name: XPReq.Finch.PoolSupervisor, manager_name: XPReq.Finch.PoolManager, default_pool_config: %{count: 1, size: 50, mod: XPFinch.HTTP1.Pool, conn_opts: [protocols: [:http1], transport_opts: [keepalive: true, nodelay: true, timeout: 5000], ssl_key_log_file_device: nil], pool_max_idle_time: :infinity, conn_max_idle_time: :infinity, start_pool_metrics?: false}})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.783 [info] Child XPReq.Finch of Supervisor #PID<0.137.0> (Supervisor.Default) started
+Pid: #PID<0.138.0>
+Start Call: XPFinch.start_link([name: XPReq.Finch, pools: %{default: [protocols: [:http1]]}])
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.783 [info] Child XPReq.FinchSupervisor of Supervisor #PID<0.137.0> (Supervisor.Default) started
+Pid: #PID<0.143.0>
+Start Call: DynamicSupervisor.start_link([strategy: :one_for_one, name: XPReq.FinchSupervisor])
+Restart: :permanent
+Shutdown: :infinity
+Type: :supervisor
+
+14:17:58.783 [info] Child XPReq.Test.Ownership of Supervisor #PID<0.137.0> (Supervisor.Default) started
+Pid: #PID<0.144.0>
+Start Call: XPReq.Test.Ownership.start_link([name: XPReq.Test.Ownership])
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.783 [info] Application xp_req started at :nonode@nohost
+
+14:17:58.783 [info] Application burrito started at :nonode@nohost
+
+14:17:58.797 [info] Child XPBriefly.Entry of Supervisor XPBriefly.Supervisor started
+Pid: #PID<0.148.0>
+Start Call: XPBriefly.Entry.start_link([])
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.797 [info] Application xp_briefly started at :nonode@nohost
+
+14:17:58.797 [info] Application xp_schematic started at :nonode@nohost
+
+14:17:58.797 [info] Application xp_typed_struct started at :nonode@nohost
+
+14:17:58.797 [info] Application xp_gen_lsp started at :nonode@nohost
+
+14:17:58.797 [info] Application xp_sourceror started at :nonode@nohost
+
+14:17:58.797 [info] Application xp_spitfire started at :nonode@nohost
+
+14:17:58.797 [info] Application xp_forge started at :nonode@nohost
+
+14:17:58.815 [info] Child :ttb_autostart of Supervisor :runtime_tools_sup started
+Pid: #PID<0.152.0>
+Start Call: :ttb_autostart.start_link()
+Restart: :temporary
+Shutdown: 3000
+Type: :worker
+
+14:17:58.815 [info] Application runtime_tools started at :nonode@nohost
+
+14:17:58.815 [info] Application et started at :nonode@nohost
+
+14:17:58.815 [info] Application observer started at :nonode@nohost
+
+14:17:58.815 [info] Application xp_path_glob started at :nonode@nohost
+
+14:17:58.839 instance_id=19F959021A7 [info] Expert v0.1.0-rc.6 starting on stdio
+
+14:17:58.880 instance_id=19F959021A7 [info] Starting NodePortMapper on nonode@nohost
+
+14:17:58.891 instance_id=19F959021A7 [info] Child XPForge.NodePortMapper of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.157.0>
+Start Call: XPForge.NodePortMapper.start_link([])
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.895 instance_id=19F959021A7 [info] Child XPForge.Document.Store of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.158.0>
+Start Call: XPForge.Document.Store.start_link([derive: [analysis: &XPForge.Ast.analyze/1]])
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.895 instance_id=19F959021A7 [info] Child XPExpert.ProjectSupervisor of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.159.0>
+Start Call: DynamicSupervisor.start_link([name: XPExpert.ProjectSupervisor, strategy: :one_for_one])
+Restart: :permanent
+Shutdown: :infinity
+Type: :supervisor
+
+14:17:58.895 instance_id=19F959021A7 [info] Child XPExpert.DynamicSupervisor of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.160.0>
+Start Call: DynamicSupervisor.start_link([name: XPExpert.DynamicSupervisor])
+Restart: :permanent
+Shutdown: :infinity
+Type: :supervisor
+
+14:17:58.900 instance_id=19F959021A7 [info] Child XPGenLSP.Assigns of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.161.0>
+Start Call: XPGenLSP.Assigns.start_link([name: XPExpert.Assigns])
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.901 instance_id=19F959021A7 [info] Child :expert_task_queue of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.162.0>
+Start Call: Task.Supervisor.start_link([name: :expert_task_queue])
+Restart: :permanent
+Shutdown: :infinity
+Type: :supervisor
+
+14:17:58.907 instance_id=19F959021A7 [info] Child XPGenLSP.Buffer of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.163.0>
+Start Call: XPGenLSP.Buffer.start_link([name: XPExpert.Buffer])
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.907 instance_id=19F959021A7 [info] Child XPExpert.ActiveProjects of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.164.0>
+Start Call: XPExpert.ActiveProjects.start_link()
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:58.907 instance_id=19F959021A7 [debug] [name: XPExpert, buffer: XPExpert.Buffer, task_supervisor: :expert_task_queue, dynamic_supervisor: XPExpert.DynamicSupervisor, assigns: XPExpert.Assigns]
+
+14:17:58.936 instance_id=19F959021A7 [info] Child XPExpert of Supervisor XPExpert.Supervisor started
+Pid: #PID<0.165.0>
+Start Call: XPExpert.start_link([name: XPExpert, buffer: XPExpert.Buffer, task_supervisor: :expert_task_queue, dynamic_supervisor: XPExpert.DynamicSupervisor, assigns: XPExpert.Assigns])
+Restart: :permanent
+Shutdown: 500
+Type: :worker
+
+14:17:58.936 instance_id=19F959021A7 [info] Application xp_expert started at :nonode@nohost
+
+14:17:59.516 instance_id=19F959021A7 [debug] handled request client -> server initialize in 554ms
+
+14:17:59.531 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:17:59.531 instance_id=19F959021A7 [info] Server initialized, registering capabilities
+
+14:17:59.541 instance_id=19F959021A7 [debug] sent request server -> client client/registerCapability
+
+14:17:59.579 instance_id=19F959021A7 [debug] handled notification client -> server initialized in 57ms
+
+14:17:59.579 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:17:59.579 instance_id=19F959021A7 [info] Starting project
+
+14:17:59.600 instance_id=19F959021A7 [info] Child {XPExpert.EngineSupervisor, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" started
+Pid: #PID<0.171.0>
+Start Call: XPExpert.EngineSupervisor.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:17:59.604 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:17:59.604 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:17:59.604 instance_id=19F959021A7 [info] Opened file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs
+
+14:17:59.605 instance_id=19F959021A7 [debug] handled notification client -> server textDocument/didOpen in 25ms
+
+14:17:59.605 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:17:59.605 instance_id=19F959021A7 [info] Opened file:///Users/danielcarpenter/Projects/ash_mssql/mix.lock
+
+14:17:59.605 instance_id=19F959021A7 [debug] handled notification client -> server textDocument/didOpen in 353µs
+
+14:17:59.609 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:17:59.615 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:17:59.615 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:17:59.629 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 23ms
+
+14:17:59.640 instance_id=19F959021A7 [info] Child XPForge.EPMD of Supervisor :net_sup started
+Pid: #PID<0.176.0>
+Start Call: XPForge.EPMD.start_link()
+Restart: :permanent
+Shutdown: 2000
+Type: :worker
+
+14:17:59.645 instance_id=19F959021A7 [info] Child :auth of Supervisor :net_sup started
+Pid: #PID<0.177.0>
+Start Call: :auth.start_link()
+Restart: :permanent
+Shutdown: 2000
+Type: :worker
+
+14:17:59.676 instance_id=19F959021A7 [info] Child :net_kernel of Supervisor :net_sup started
+Pid: #PID<0.178.0>
+Start Call: :net_kernel.start_link(%{name: :"expert-manager-ash_mssql-11128@127.0.0.1", supervisor: :net_sup_dynamic, net_tickintensity: 4, net_ticktime: 60, name_domain: :longnames, clean_halt: false})
+Restart: :permanent
+Shutdown: 2000
+Type: :worker
+
+14:17:59.676 instance_id=19F959021A7 [debug] Child :net_sup_dynamic of Supervisor :kernel_sup started
+Pid: #PID<0.175.0>
+Start Call: :erl_distribution.start_link(%{name: :"expert-manager-ash_mssql-11128@127.0.0.1", supervisor: :net_sup_dynamic, net_tickintensity: 4, net_ticktime: 60, name_domain: :longnames, clean_halt: false})
+Restart: :permanent
+Shutdown: 1000
+Type: :supervisor
+
+14:17:59.682 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:17:59.682 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:00.144 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:00.144 instance_id=19F959021A7 [info] Using path: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/erts-15.2.7/bin:/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/bin:/Users/danielcarpenter/.local/share/nvim/mason/bin:/Users/danielcarpenter/.asdf/installs/neovim/nightly/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.local/bin:/opt/homebrew/opt/libpq/bin:/opt/homebrew/opt/openjdk/bin:/opt/homebrew/opt/openjdk/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.asdf/shims:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/Users/danielcarpenter/.cargo/bin:/Applications/kitty.app/Contents/MacOS
+
+14:18:00.144 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:00.144 instance_id=19F959021A7 [info] Found elixir executable at /Users/danielcarpenter/.asdf/shims/elixir
+
+14:18:00.144 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:00.144 instance_id=19F959021A7 [info] Found erl executable at /Users/danielcarpenter/.asdf/shims/erl
+
+14:18:00.145 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:00.144 instance_id=19F959021A7 [info] Preparing engine
+
+14:18:01.280 instance_id=19F959021A7 [debug] Engine build output: ** (Mix.Error) httpc request failed with: {:failed_connect, [{:to_address, {~c"builds.hex.pm", 443}}, {:inet, [:inet], {:tls_alert, {:unsupported_certificate, ~c"TLS client: In state wait_cert_cr at ssl_handshake.erl:2199 generated CLIENT ALERT: Fatal - Unsupported Certificate\n {key_usage_mismatch,{{'Extension',{2,5,29,15},true,[keyCertSign,cRLSign]},\n                      {'Extension',{2,5,29,37},false,[{1,3,6,1,5,5,7,3,1}]}}}"}}}]}
+
+14:18:01.280 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:18:01.280 instance_id=19F959021A7 [debug] Engine build output: Could not install Rebar because Mix could not download metadata at https://builds.hex.pm/installs/rebar.csv.
+
+14:18:01.280 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:18:01.280 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix.ex:618: Mix.raise/2
+
+14:18:01.280 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/local.ex:168: Mix.Local.find_matching_versions_from_signed_csv!/3
+
+14:18:01.280 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/tasks/local.rebar.ex:114: Mix.Tasks.Local.Rebar.install_from_s3/4
+
+14:18:01.281 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/task.ex:495: anonymous fn/3 in Mix.Task.run_task/5
+
+14:18:01.281 instance_id=19F959021A7 [debug] Engine build output: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)
+
+14:18:01.285 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:01.285 instance_id=19F959021A7 [error] Engine build script exited with status: 1
+
+14:18:01.285 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:01.294 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:01.294 instance_id=19F959021A7 [error] Process #PID<0.172.0> terminating
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+    (stdlib 6.2.2.1) gen_server.erl:2210: :gen_server.init_it/6
+    (stdlib 6.2.2.1) proc_lib.erl:329: :proc_lib.init_p_do_apply/3
+Initial Call: XPExpert.Project.Node.init/1
+Ancestors: [:"ash_mssql::76231381::supervisor", XPExpert.ProjectSupervisor, XPExpert.Supervisor, #PID<0.154.0>]
+Message Queue Length: 0
+Messages: []
+Links: [#PID<0.169.0>]
+Dictionary: []
+Trapping Exits: false
+Status: :running
+Heap Size: 4185
+Stack Size: 29
+Reductions: 13470
+
+14:18:01.295 instance_id=19F959021A7 [error] Child {XPExpert.Project.Node, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" failed to start
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+Start Call: XPExpert.Project.Node.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:18:01.295 instance_id=19F959021A7 [info] Child {XPExpert.EngineSupervisor, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" started
+Pid: #PID<0.185.0>
+Start Call: XPExpert.EngineSupervisor.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:18:01.295 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:18:01.295 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:01.295 instance_id=19F959021A7 [error] Failed to start project node for ash_mssql: {:shutdown,
+ {:failed_to_start_child, {XPExpert.Project.Node, "ash_mssql::76231381"},
+  {:error, "Build script exited with status: 1",
+   "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}}}
+
+14:18:01.295 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:01.295 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:01.295 instance_id=19F959021A7 [error] Engine build failed for ash_mssql::76231381.
+Build script exited with status: 1
+/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)
+
+14:18:01.295 instance_id=19F959021A7 [debug] sent notification server -> client window/showMessage
+
+14:18:01.295 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:18:01.296 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:01.834 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:01.834 instance_id=19F959021A7 [info] Using path: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/erts-15.2.7/bin:/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/bin:/Users/danielcarpenter/.local/share/nvim/mason/bin:/Users/danielcarpenter/.asdf/installs/neovim/nightly/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.local/bin:/opt/homebrew/opt/libpq/bin:/opt/homebrew/opt/openjdk/bin:/opt/homebrew/opt/openjdk/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.asdf/shims:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/Users/danielcarpenter/.cargo/bin:/Applications/kitty.app/Contents/MacOS
+
+14:18:01.834 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:01.834 instance_id=19F959021A7 [info] Found elixir executable at /Users/danielcarpenter/.asdf/shims/elixir
+
+14:18:01.834 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:01.834 instance_id=19F959021A7 [info] Found erl executable at /Users/danielcarpenter/.asdf/shims/erl
+
+14:18:01.834 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:01.834 instance_id=19F959021A7 [info] Preparing engine
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: ** (Mix.Error) httpc request failed with: {:failed_connect, [{:to_address, {~c"builds.hex.pm", 443}}, {:inet, [:inet], {:tls_alert, {:unsupported_certificate, ~c"TLS client: In state wait_cert_cr at ssl_handshake.erl:2199 generated CLIENT ALERT: Fatal - Unsupported Certificate\n {key_usage_mismatch,{{'Extension',{2,5,29,15},true,[keyCertSign,cRLSign]},\n                      {'Extension',{2,5,29,37},false,[{1,3,6,1,5,5,7,3,1}]}}}"}}}]}
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: Could not install Rebar because Mix could not download metadata at https://builds.hex.pm/installs/rebar.csv.
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix.ex:618: Mix.raise/2
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/local.ex:168: Mix.Local.find_matching_versions_from_signed_csv!/3
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/tasks/local.rebar.ex:114: Mix.Tasks.Local.Rebar.install_from_s3/4
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/task.ex:495: anonymous fn/3 in Mix.Task.run_task/5
+
+14:18:02.493 instance_id=19F959021A7 [debug] Engine build output: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)
+
+14:18:02.568 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:02.567 instance_id=19F959021A7 [error] Engine build script exited with status: 1
+
+14:18:02.568 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:02.568 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:02.568 instance_id=19F959021A7 [error] Process #PID<0.186.0> terminating
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+    (stdlib 6.2.2.1) gen_server.erl:2210: :gen_server.init_it/6
+    (stdlib 6.2.2.1) proc_lib.erl:329: :proc_lib.init_p_do_apply/3
+Initial Call: XPExpert.Project.Node.init/1
+Ancestors: [:"ash_mssql::76231381::supervisor", XPExpert.ProjectSupervisor, XPExpert.Supervisor, #PID<0.154.0>]
+Message Queue Length: 0
+Messages: []
+Links: [#PID<0.184.0>]
+Dictionary: []
+Trapping Exits: false
+Status: :running
+Heap Size: 987
+Stack Size: 29
+Reductions: 10832
+
+14:18:02.568 instance_id=19F959021A7 [error] Child {XPExpert.Project.Node, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" failed to start
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+Start Call: XPExpert.Project.Node.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:18:02.568 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:02.568 instance_id=19F959021A7 [error] Failed to start project node for ash_mssql: {:shutdown,
+ {:failed_to_start_child, {XPExpert.Project.Node, "ash_mssql::76231381"},
+  {:error, "Build script exited with status: 1",
+   "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}}}
+
+14:18:02.568 instance_id=19F959021A7 [info] Child {XPExpert.EngineSupervisor, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" started
+Pid: #PID<0.191.0>
+Start Call: XPExpert.EngineSupervisor.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:18:02.568 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:18:02.628 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:02.628 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:18:02.640 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:03.134 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:03.134 instance_id=19F959021A7 [info] Using path: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/erts-15.2.7/bin:/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/bin:/Users/danielcarpenter/.local/share/nvim/mason/bin:/Users/danielcarpenter/.asdf/installs/neovim/nightly/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.local/bin:/opt/homebrew/opt/libpq/bin:/opt/homebrew/opt/openjdk/bin:/opt/homebrew/opt/openjdk/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.asdf/shims:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/Users/danielcarpenter/.cargo/bin:/Applications/kitty.app/Contents/MacOS
+
+14:18:03.135 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:03.135 instance_id=19F959021A7 [info] Found elixir executable at /Users/danielcarpenter/.asdf/shims/elixir
+
+14:18:03.135 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:03.135 instance_id=19F959021A7 [info] Found erl executable at /Users/danielcarpenter/.asdf/shims/erl
+
+14:18:03.135 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:03.135 instance_id=19F959021A7 [info] Preparing engine
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: ** (Mix.Error) httpc request failed with: {:failed_connect, [{:to_address, {~c"builds.hex.pm", 443}}, {:inet, [:inet], {:tls_alert, {:unsupported_certificate, ~c"TLS client: In state wait_cert_cr at ssl_handshake.erl:2199 generated CLIENT ALERT: Fatal - Unsupported Certificate\n {key_usage_mismatch,{{'Extension',{2,5,29,15},true,[keyCertSign,cRLSign]},\n                      {'Extension',{2,5,29,37},false,[{1,3,6,1,5,5,7,3,1}]}}}"}}}]}
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: Could not install Rebar because Mix could not download metadata at https://builds.hex.pm/installs/rebar.csv.
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix.ex:618: Mix.raise/2
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/local.ex:168: Mix.Local.find_matching_versions_from_signed_csv!/3
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/tasks/local.rebar.ex:114: Mix.Tasks.Local.Rebar.install_from_s3/4
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/task.ex:495: anonymous fn/3 in Mix.Task.run_task/5
+
+14:18:03.746 instance_id=19F959021A7 [debug] Engine build output: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)
+
+14:18:03.751 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:03.751 instance_id=19F959021A7 [error] Engine build script exited with status: 1
+
+14:18:03.751 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:03.751 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:18:03.751 instance_id=19F959021A7 [error] Process #PID<0.192.0> terminating
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+    (stdlib 6.2.2.1) gen_server.erl:2210: :gen_server.init_it/6
+    (stdlib 6.2.2.1) proc_lib.erl:329: :proc_lib.init_p_do_apply/3
+Initial Call: XPExpert.Project.Node.init/1
+Ancestors: [:"ash_mssql::76231381::supervisor", XPExpert.ProjectSupervisor, XPExpert.Supervisor, #PID<0.154.0>]
+Message Queue Length: 0
+Messages: []
+Links: [#PID<0.190.0>]
+Dictionary: []
+Trapping Exits: false
+Status: :running
+Heap Size: 987
+Stack Size: 29
+Reductions: 10821
+
+14:18:03.751 instance_id=19F959021A7 [error] Child {XPExpert.Project.Node, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" failed to start
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+Start Call: XPExpert.Project.Node.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:18:03.752 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:18:03.752 instance_id=19F959021A7 [error] Failed to start project node for ash_mssql: {:shutdown,
+ {:failed_to_start_child, {XPExpert.Project.Node, "ash_mssql::76231381"},
+  {:error, "Build script exited with status: 1",
+   "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}}}
+
+14:33:23.580 instance_id=19F959021A7 [info] Child {XPExpert.EngineSupervisor, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" started
+Pid: #PID<0.204.0>
+Start Call: XPExpert.EngineSupervisor.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:33:23.580 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:33:23.580 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:23.580 instance_id=19F959021A7 [info] Opened file:///Users/danielcarpenter/Projects/ash_mssql/lib/data_layer.ex
+
+14:33:23.580 instance_id=19F959021A7 [debug] handled notification client -> server textDocument/didOpen in 1ms
+
+14:33:23.590 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:33:23.591 instance_id=19F959021A7 [debug] sent request server -> client window/workDoneProgress/create
+
+14:33:23.591 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:23.591 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:23.592 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 872µs
+
+14:33:23.598 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:33:24.682 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:24.682 instance_id=19F959021A7 [info] Using path: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/erts-15.2.7/bin:/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/bin:/Users/danielcarpenter/.local/share/nvim/mason/bin:/Users/danielcarpenter/.asdf/installs/neovim/nightly/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.local/bin:/opt/homebrew/opt/libpq/bin:/opt/homebrew/opt/openjdk/bin:/opt/homebrew/opt/openjdk/bin:/Users/danielcarpenter/.rd/bin:/Users/danielcarpenter/.asdf/shims:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/Users/danielcarpenter/.cargo/bin:/Applications/kitty.app/Contents/MacOS
+
+14:33:24.682 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:24.682 instance_id=19F959021A7 [info] Found elixir executable at /Users/danielcarpenter/.asdf/shims/elixir
+
+14:33:24.682 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:24.682 instance_id=19F959021A7 [info] Found erl executable at /Users/danielcarpenter/.asdf/shims/erl
+
+14:33:24.682 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:24.682 instance_id=19F959021A7 [info] Preparing engine
+
+14:33:24.898 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:24.898 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:24.898 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 894µs
+
+14:33:25.438 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:25.438 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:25.438 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 869µs
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: ** (Mix.Error) httpc request failed with: {:failed_connect, [{:to_address, {~c"builds.hex.pm", 443}}, {:inet, [:inet], {:tls_alert, {:unsupported_certificate, ~c"TLS client: In state wait_cert_cr at ssl_handshake.erl:2199 generated CLIENT ALERT: Fatal - Unsupported Certificate\n {key_usage_mismatch,{{'Extension',{2,5,29,15},true,[keyCertSign,cRLSign]},\n                      {'Extension',{2,5,29,37},false,[{1,3,6,1,5,5,7,3,1}]}}}"}}}]}
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: Could not install Rebar because Mix could not download metadata at https://builds.hex.pm/installs/rebar.csv.
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: 
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix.ex:618: Mix.raise/2
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/local.ex:168: Mix.Local.find_matching_versions_from_signed_csv!/3
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/tasks/local.rebar.ex:114: Mix.Tasks.Local.Rebar.install_from_s3/4
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: (mix 1.18.4) lib/mix/task.ex:495: anonymous fn/3 in Mix.Task.run_task/5
+
+14:33:26.712 instance_id=19F959021A7 [debug] Engine build output: /Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)
+
+14:33:26.715 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:26.715 instance_id=19F959021A7 [error] Engine build script exited with status: 1
+
+14:33:26.715 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:33:26.716 instance_id=19F959021A7 [debug] sent notification server -> client $/progress
+
+14:33:26.716 instance_id=19F959021A7 [error] Process #PID<0.205.0> terminating
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+    (stdlib 6.2.2.1) gen_server.erl:2210: :gen_server.init_it/6
+    (stdlib 6.2.2.1) proc_lib.erl:329: :proc_lib.init_p_do_apply/3
+Initial Call: XPExpert.Project.Node.init/1
+Ancestors: [:"ash_mssql::76231381::supervisor", XPExpert.ProjectSupervisor, XPExpert.Supervisor, #PID<0.154.0>]
+Message Queue Length: 0
+Messages: []
+Links: [#PID<0.203.0>]
+Dictionary: []
+Trapping Exits: false
+Status: :running
+Heap Size: 987
+Stack Size: 29
+Reductions: 10737
+
+14:33:26.716 instance_id=19F959021A7 [error] Child {XPExpert.Project.Node, "ash_mssql::76231381"} of Supervisor :"ash_mssql::76231381::supervisor" failed to start
+** (exit) {:error, "Build script exited with status: 1", "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}
+Start Call: XPExpert.Project.Node.start_link(%XPForge.Project{root_uri: "file:///Users/danielcarpenter/Projects/ash_mssql", mix_exs_uri: "file:///Users/danielcarpenter/Projects/ash_mssql/mix.exs", mix_project?: true, mix_env: nil, mix_target: nil, env_variables: %{}, project_module: nil, entropy: 11128})
+Restart: :permanent
+Shutdown: 5000
+Type: :worker
+
+14:33:26.716 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:26.716 instance_id=19F959021A7 [error] Failed to start project node for ash_mssql: {:shutdown,
+ {:failed_to_start_child, {XPExpert.Project.Node, "ash_mssql::76231381"},
+  {:error, "Build script exited with status: 1",
+   "/Users/danielcarpenter/Library/Application Support/.burrito/expert_erts-15.2.7_0.1.0-rc.6/lib/xp_expert-0.1.0-rc.6/priv/build_engine.exs:31: (file)"}}}
+
+14:33:29.734 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:29.734 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:29.734 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 900µs
+
+14:33:31.080 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.080 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.080 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 1ms
+
+14:33:31.232 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.232 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.232 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 778µs
+
+14:33:31.250 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.250 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.250 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 589µs
+
+14:33:31.270 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.270 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.270 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 834µs
+
+14:33:31.290 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.290 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.290 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 726µs
+
+14:33:31.310 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.310 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.310 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 976µs
+
+14:33:31.632 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.632 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.632 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 832µs
+
+14:33:31.652 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.652 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.652 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 1ms
+
+14:33:31.672 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.672 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.672 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 763µs
+
+14:33:31.708 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.708 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.708 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 833µs
+
+14:33:31.726 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.726 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.726 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 759µs
+
+14:33:31.747 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:31.747 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:31.747 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 866µs
+
+14:33:32.015 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.015 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.015 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 1ms
+
+14:33:32.035 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.035 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.035 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 750µs
+
+14:33:32.057 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.057 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.057 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 799µs
+
+14:33:32.076 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.076 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.076 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 761µs
+
+14:33:32.097 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.097 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.097 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 775µs
+
+14:33:32.118 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.118 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.118 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 701µs
+
+14:33:32.143 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.143 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.143 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 781µs
+
+14:33:32.191 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.191 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.191 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 927µs
+
+14:33:32.257 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.257 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.257 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 700µs
+
+14:33:32.276 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.276 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.276 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 636µs
+
+14:33:32.298 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.298 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.298 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 747µs
+
+14:33:32.324 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.324 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.324 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 814µs
+
+14:33:32.366 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.366 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.366 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 745µs
+
+14:33:32.547 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.547 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.547 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 743µs
+
+14:33:32.592 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.592 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.592 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 714µs
+
+14:33:32.629 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.629 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.630 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 653µs
+
+14:33:32.707 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:32.707 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:32.707 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 968µs
+
+14:33:33.375 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:33:33.375 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:33:33.376 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 760µs
+
+14:34:35.929 instance_id=19F959021A7 [debug] sent notification server -> client window/logMessage
+
+14:34:35.929 instance_id=19F959021A7 [info] Received request textDocument/documentSymbol before engine for ash_mssql was initialized. Ignoring.
+
+14:34:35.929 instance_id=19F959021A7 [debug] handled request client -> server textDocument/documentSymbol in 1ms
+
+15:01:32.240 instance_id=19F959021A7 [debug] handled notification client -> server workspace/didChangeWatchedFiles in 15ms
+
+15:02:30.362 instance_id=19F959021A7 [debug] handled notification client -> server workspace/didChangeWatchedFiles in 300µs
+
+15:02:46.499 instance_id=19F959021A7 [debug] handled notification client -> server workspace/didChangeWatchedFiles in 651µs
+
+15:02:47.384 instance_id=19F959021A7 [debug] handled notification client -> server workspace/didChangeWatchedFiles in 185µs
