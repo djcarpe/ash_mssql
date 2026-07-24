@@ -1,0 +1,42 @@
+defmodule AshMssql.Test.PostLink do
+  @moduledoc false
+  use Ash.Resource,
+    domain: AshMssql.Test.Domain,
+    data_layer: AshMssql.DataLayer
+
+  mssql do
+    table "post_links"
+    repo AshMssql.TestRepo
+  end
+
+  actions do
+    default_accept(:*)
+    defaults([:create, :read, :update, :destroy])
+  end
+
+  identities do
+    identity(:unique_link, [:source_post_id, :destination_post_id])
+  end
+
+  attributes do
+    attribute :state, :atom do
+      public?(true)
+      constraints(one_of: [:active, :archived])
+      default(:active)
+    end
+  end
+
+  relationships do
+    belongs_to :source_post, AshMssql.Test.Post do
+      public?(true)
+      allow_nil?(false)
+      primary_key?(true)
+    end
+
+    belongs_to :destination_post, AshMssql.Test.Post do
+      public?(true)
+      allow_nil?(false)
+      primary_key?(true)
+    end
+  end
+end
