@@ -15,6 +15,7 @@ defmodule AshMssql.Test.Domain do
     resource(AshMssql.Test.Account)
     resource(AshMssql.Test.Organization)
     resource(AshMssql.Test.Manager)
+    resource(AshMssql.Test.ReplicaPost)
   end
 
   authorization do

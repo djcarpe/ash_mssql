@@ -194,10 +194,10 @@ defmodule AshMssql.DataLayer do
     ],
     schema: [
       repo: [
-        type: :atom,
+        type: {:or, [{:behaviour, Ecto.Repo}, {:fun, 2}]},
         required: true,
         doc:
-          "The repo that will be used to fetch your data. See the `AshMssql.Repo` documentation for more"
+          "The repo that will be used to fetch your data. See the `AshMssql.Repo` documentation for more. Can also be a function that takes a resource and a type (`:read | :mutate`) and returns the repo, e.g. to route reads to a replica."
       ],
       migrate?: [
         type: :boolean,
@@ -567,14 +567,14 @@ defmodule AshMssql.DataLayer do
           %{}
 
         _ ->
-          dynamic_repo(resource, query).one(query, repo_opts(nil, nil, resource))
+          dynamic_repo(resource, query, :read).one(query, repo_opts(nil, nil, resource))
       end
 
     {:ok, add_exists_aggs(result, resource, query_before_select, exists)}
   end
 
   defp add_exists_aggs(result, resource, query, exists) do
-    repo = dynamic_repo(resource, query)
+    repo = dynamic_repo(resource, query, :read)
     repo_opts = repo_opts(nil, nil, resource)
 
     Enum.reduce(exists, result, fn agg, result ->
@@ -628,7 +628,7 @@ defmodule AshMssql.DataLayer do
           primary_key = Ash.Resource.Info.primary_key(resource)
 
           {:ok,
-           dynamic_repo(resource, query).all(query, repo_opts(nil, nil, resource))
+           dynamic_repo(resource, query, :read).all(query, repo_opts(nil, nil, resource))
            |> Enum.uniq_by(&Map.take(&1, primary_key))}
         end
     end
@@ -1836,16 +1836,21 @@ defmodule AshMssql.DataLayer do
     end
   end
 
-  defp dynamic_repo(resource, %{__ash_bindings__: %{context: %{data_layer: %{repo: repo}}}}) do
-    repo || AshMssql.DataLayer.Info.repo(resource)
+  # `type` is `:read` or `:mutate`; it selects the read/replica or mutate repo
+  # when the resource configures its `repo` as a function. An explicit repo in
+  # the data-layer context always wins.
+  defp dynamic_repo(resource, subject, type \\ :mutate)
+
+  defp dynamic_repo(resource, %{__ash_bindings__: %{context: %{data_layer: %{repo: repo}}}}, type) do
+    repo || AshMssql.DataLayer.Info.repo(resource, type)
   end
 
-  defp dynamic_repo(resource, %{context: %{data_layer: %{repo: repo}}}) do
-    repo || AshMssql.DataLayer.Info.repo(resource)
+  defp dynamic_repo(resource, %{context: %{data_layer: %{repo: repo}}}, type) do
+    repo || AshMssql.DataLayer.Info.repo(resource, type)
   end
 
-  defp dynamic_repo(resource, _) do
-    AshMssql.DataLayer.Info.repo(resource)
+  defp dynamic_repo(resource, _, type) do
+    AshMssql.DataLayer.Info.repo(resource, type)
   end
 
   defp resolve_source(resource, changeset) do

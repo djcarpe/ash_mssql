@@ -402,8 +402,8 @@ defmodule AshMssql.SqlImplementation do
   end
 
   @impl true
-  def repo(resource, _kind) do
-    AshMssql.DataLayer.Info.repo(resource)
+  def repo(resource, kind) do
+    AshMssql.DataLayer.Info.repo(resource, kind)
   end
 
   @impl true
