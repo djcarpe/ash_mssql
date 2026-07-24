@@ -298,6 +298,18 @@ defmodule AshMssql.SqlImplementation do
     {:ok, expr, acc}
   end
 
+  @impl true
+  def expr(
+        _query,
+        _expr,
+        _bindings,
+        _embedded?,
+        _acc,
+        _type
+      ) do
+    :error
+  end
+
   # Fragment arguments for an Elixir-truthiness "is falsy" test on `expr`.
   # In Elixir only `nil` and `false` are falsy (0, "" etc. are truthy), so the
   # predicate is `IS NULL` for every type, plus `= 0` (false) for booleans (BIT).
@@ -309,18 +321,6 @@ defmodule AshMssql.SqlImplementation do
 
   defp falsy_fragment(expr, _type) do
     [raw: "(", casted_expr: expr, raw: " IS NULL)"]
-  end
-
-  @impl true
-  def expr(
-        _query,
-        _expr,
-        _bindings,
-        _embedded?,
-        _acc,
-        _type
-      ) do
-    :error
   end
 
   @impl true

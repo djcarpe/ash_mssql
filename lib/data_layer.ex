@@ -385,7 +385,7 @@ defmodule AshMssql.DataLayer do
   def can?(_, :bulk_create), do: true
   def can?(_, {:lock, _}), do: false
 
-  def can?(_, :transact), do: false
+  def can?(_, :transact), do: true
   def can?(_, :composite_primary_key), do: true
   def can?(_, {:atomic, :update}), do: true
   def can?(_, {:atomic, :upsert}), do: true
@@ -1439,38 +1439,42 @@ defmodule AshMssql.DataLayer do
     end
   end
 
+  # Upserts with atomics run inside an Ash transaction, so we cannot rely on
+  # catching a unique-violation and continuing (a failed statement dooms the
+  # transaction). Instead we check for the existing row by key and branch to an
+  # atomic UPDATE or an INSERT, relying on the surrounding transaction for
+  # isolation. (Non-atomic upserts use a single atomic MERGE; this SELECT-then-
+  # write path is only for the atomic case and is not hardened against a
+  # concurrent insert of the same key outside a serializable transaction.)
   defp upsert_with_atomics(resource, changeset, keys) do
     repo = dynamic_repo(resource, changeset)
-    source = resolve_source(resource, changeset)
+    key_values = Enum.map(keys, fn key -> {key, Map.get(changeset.attributes, key)} end)
 
-    opts =
-      case changeset.context[:data_layer][:schema] do
-        nil -> repo_opts(nil, changeset.tenant, resource)
-        schema -> Keyword.put(repo_opts(nil, changeset.tenant, resource), :prefix, schema)
-      end
+    existing =
+      from(row in resource, as: ^0)
+      |> Ecto.Query.where(^key_values)
+      |> repo.one()
 
-    try do
+    if existing do
+      atomic_conflict_update(resource, changeset, keys, repo)
+    else
+      source = resolve_source(resource, changeset)
+
+      opts =
+        case changeset.context[:data_layer][:schema] do
+          nil -> repo_opts(nil, changeset.tenant, resource)
+          schema -> Keyword.put(repo_opts(nil, changeset.tenant, resource), :prefix, schema)
+        end
+
       case insert_all_returning(source, [changeset.attributes], repo, resource, opts) do
         {_count, [record]} -> {:ok, record}
         {_count, _} -> {:ok, nil}
       end
-    rescue
-      e in [Tds.Error] ->
-        if upsert_conflict?(e) do
-          atomic_conflict_update(resource, changeset, keys, repo)
-        else
-          reraise e, __STACKTRACE__
-        end
     end
   end
 
-  defp upsert_conflict?(%Tds.Error{mssql: mssql}) when is_map(mssql),
-    do: mssql[:number] in [2601, 2627]
-
-  defp upsert_conflict?(_), do: false
-
-  # On conflict, apply the atomics (and any other upsert fields) as an UPDATE to
-  # the conflicting row, then reload it. Mirrors `update/2`'s atomic handling.
+  # Apply the atomics (and any other upsert fields) as an UPDATE to the
+  # conflicting row, then reload it. Mirrors `update/2`'s atomic handling.
   defp atomic_conflict_update(resource, changeset, keys, repo) do
     ecto_changeset = ecto_changeset(changeset.data, changeset, :create, false)
     key_values = Enum.map(keys, fn key -> {key, Map.get(changeset.attributes, key)} end)
@@ -1790,6 +1794,22 @@ defmodule AshMssql.DataLayer do
     }
 
     %{query | __ash_bindings__: new_ash_bindings}
+  end
+
+  @impl true
+  def transaction(resource, func, timeout \\ nil, _reason \\ %{type: :custom, metadata: %{}}) do
+    repo = AshMssql.DataLayer.Info.repo(resource)
+
+    if timeout do
+      repo.transaction(func, timeout: timeout)
+    else
+      repo.transaction(func)
+    end
+  end
+
+  @impl true
+  def in_transaction?(resource) do
+    AshMssql.DataLayer.Info.repo(resource).in_transaction?()
   end
 
   @impl true

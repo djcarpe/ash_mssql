@@ -79,6 +79,11 @@ Upserts are supported (`Ash.create!(..., upsert?: true)` and bulk upserts).
 
 ## Transactions
 
-This data layer does not currently declare transaction support
-(`Ash.DataLayer.can?(resource, :transact)` is `false`). Do not assume multi-step
-actions are wrapped in a single database transaction.
+Transactions are supported (`Ash.DataLayer.can?(resource, :transact)` is `true`),
+backed by `Ecto.Repo` transactions on the SQL Server connection. Multi-step
+actions, reactors, and bulk operations are wrapped in a transaction as usual.
+
+Note: atomic upserts (an upsert whose changeset carries `atomic_update/3`) run as
+a SELECT-then-INSERT/UPDATE inside the surrounding transaction rather than a
+single `MERGE`, because atomic expressions reference the existing row. Non-atomic
+upserts still use a single `MERGE`.
