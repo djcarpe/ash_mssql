@@ -135,15 +135,17 @@ if Code.ensure_loaded?(Igniter) do
           |> Igniter.Code.Common.move_to_cursor_match_in_scope(patterns)
           |> case do
             {:ok, zipper} ->
-              zipper
-              |> Igniter.Project.Config.modify_configuration_code(
-                [repo, :pool_size],
-                otp_app,
-                Sourceror.parse_string!("""
-                String.to_integer(System.get_env("POOL_SIZE") || "10")
-                """)
-              )
-              |> then(&{:ok, &1})
+              case Igniter.Project.Config.modify_config_code(
+                     zipper,
+                     [repo, :pool_size],
+                     otp_app,
+                     Sourceror.parse_string!("""
+                     String.to_integer(System.get_env("POOL_SIZE") || "10")
+                     """)
+                   ) do
+                {:ok, zipper} -> {:ok, zipper}
+                _ -> {:ok, zipper}
+              end
 
             _ ->
               Igniter.Code.Common.add_code(zipper, """

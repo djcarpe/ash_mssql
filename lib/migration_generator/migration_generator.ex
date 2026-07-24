@@ -2278,7 +2278,15 @@ defmodule AshMssql.MigrationGenerator do
   defp migration_type(other, constraints) do
     type = Ash.Type.get_type(other)
 
-    migration_type_from_storage_type(Ash.Type.storage_type(type, constraints))
+    # A custom Ash.Type can pick its own MSSQL column type (e.g. a sized
+    # nvarchar derived from its constraints) by exporting
+    # `mssql_migration_type(constraints)`. Falls back to the type's
+    # storage_type otherwise.
+    if Code.ensure_loaded?(type) and function_exported?(type, :mssql_migration_type, 1) do
+      type.mssql_migration_type(constraints)
+    else
+      migration_type_from_storage_type(Ash.Type.storage_type(type, constraints))
+    end
   end
 
   defp migration_type_from_storage_type(:string), do: :string

@@ -732,7 +732,7 @@ defmodule AshMssql.MigrationGeneratorTest do
         end
       end
 
-      defmodule Comment do
+      defmodule Comment2 do
         use Ash.Resource,
           domain: nil,
           data_layer: AshMssql.DataLayer
@@ -751,7 +751,7 @@ defmodule AshMssql.MigrationGeneratorTest do
         end
       end
 
-      defdomain([Post, Comment])
+      defdomain([Post, Comment2])
 
       Mix.shell(Mix.Shell.Process)
 
@@ -774,7 +774,7 @@ defmodule AshMssql.MigrationGeneratorTest do
         end
       end
 
-      defmodule Comment do
+      defmodule Comment3 do
         use Ash.Resource,
           domain: nil,
           data_layer: AshMssql.DataLayer
@@ -793,7 +793,7 @@ defmodule AshMssql.MigrationGeneratorTest do
         end
       end
 
-      defdomain([Post, Comment])
+      defdomain([Post, Comment3])
 
       AshMssql.MigrationGenerator.generate(Domain,
         snapshot_path: "test_snapshots_path",

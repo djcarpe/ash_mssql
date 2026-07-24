@@ -751,6 +751,13 @@ defmodule AshMssql.DataLayer do
           if options[:single?] do
             {:ok, results}
           else
+            # MSSQL does not guarantee that OUTPUT rows come back in VALUES
+            # order, so returned records must be matched back to their
+            # changesets by primary key (client-supplied, e.g. uuid pkeys)
+            # rather than positionally. Falls back to positional zip only when
+            # pkey values weren't supplied (e.g. server-generated identities).
+            results = align_results_with_changesets(results, changesets, resource)
+
             {:ok,
              Stream.zip_with(results, changesets, fn result, changeset ->
                Ash.Resource.put_metadata(
@@ -771,6 +778,34 @@ defmodule AshMssql.DataLayer do
           {:bulk_create, ecto_changeset(changeset.data, changeset, :create, false)},
           resource
         )
+    end
+  end
+
+  # Reorder OUTPUT-returned records to match changeset order by primary key.
+  # Only possible when every changeset carries a full primary key (the common
+  # case: client-generated uuid keys); otherwise returns results as-is.
+  defp align_results_with_changesets(results, changesets, resource) do
+    pkey = Ash.Resource.Info.primary_key(resource)
+
+    changeset_keys =
+      Enum.map(changesets, fn changeset ->
+        Enum.map(pkey, &Map.get(changeset.attributes, &1))
+      end)
+
+    if Enum.any?(changeset_keys, fn key -> Enum.any?(key, &is_nil/1) end) do
+      results
+    else
+      by_key = Map.new(results, fn record -> {Enum.map(pkey, &Map.get(record, &1)), record} end)
+
+      aligned = Enum.map(changeset_keys, &Map.get(by_key, &1))
+
+      if Enum.any?(aligned, &is_nil/1) do
+        # A key didn't match (type dump mismatch etc.) — fall back to the raw
+        # order rather than dropping records.
+        results
+      else
+        aligned
+      end
     end
   end
 
@@ -1797,8 +1832,17 @@ defmodule AshMssql.DataLayer do
   end
 
   @impl true
-  def transaction(resource, func, timeout \\ nil, _reason \\ %{type: :custom, metadata: %{}}) do
-    repo = AshMssql.DataLayer.Info.repo(resource)
+  def transaction(resource, func, timeout \\ nil, reason \\ %{type: :custom, metadata: %{}}) do
+    # An explicit repo in the data-layer context (e.g. a dynamically selected
+    # repo) takes precedence, matching ash_postgres.
+    repo =
+      case reason[:data_layer_context] do
+        %{repo: repo} when not is_nil(repo) ->
+          repo
+
+        _ ->
+          AshMssql.DataLayer.Info.repo(resource)
+      end
 
     if timeout do
       repo.transaction(func, timeout: timeout)

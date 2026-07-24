@@ -9,8 +9,13 @@ defmodule AshMssql.Transformers.VerifyRepo do
     repo = Transformer.get_option(dsl, [:mssql], :repo)
 
     cond do
+      # A function repo is resolved dynamically per (resource, type) — e.g. for
+      # read/write (replica) separation — so it can't be statically verified.
+      is_function(repo, 2) ->
+        {:ok, dsl}
+
       match?({:error, _}, Code.ensure_compiled(repo)) ->
-        {:error, "Could not find repo module #{repo}"}
+        {:error, "Could not find repo module #{inspect(repo)}"}
 
       repo.__adapter__() != Ecto.Adapters.Tds ->
         {:error, "Expected a repo using the MSSQL adapter `Ecto.Adapters.Tds`"}
