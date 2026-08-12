@@ -365,8 +365,15 @@ defmodule AshMssql.MigrationGenerator do
         topo_visit(table, deps, ordered, visited, %{})
       end)
 
-    # `ordered` is in referenced-first order: a referenced table always precedes
-    # any table that references it.
+    # topo_visit prepends each table after visiting its dependencies, so
+    # `ordered` is DEPENDENTS-first (a table precedes the tables it
+    # references). That looks backwards for inline-FK `CREATE TABLE`, but it
+    # is exactly the seed `sort_operations/2` needs: its insertion sort
+    # re-inserts each operation *before* the first operation it must follow,
+    # which net-inverts seeded pairs — feeding it referenced-first input
+    # makes referencing tables come out first and the migration fail. The
+    # end-to-end create order is covered by the "referenced table is created
+    # before the table referencing it" migration generator test.
     ordered
   end
 

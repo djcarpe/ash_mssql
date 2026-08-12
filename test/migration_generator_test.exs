@@ -274,6 +274,78 @@ defmodule AshMssql.MigrationGeneratorTest do
       assert contents =~ ~r/modify :title, :varchar.*size: 32/
     end
 
+    test "a referenced table is created before the table referencing it, regardless of name order" do
+      # The referencing table sorts alphabetically *before* the referenced
+      # one, so a correct creation order can only come from the reference
+      # topology, not from incidental name ordering.
+      Code.compiler_options(ignore_module_conflict: true)
+
+      defmodule ZzzParent do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshMssql.DataLayer
+
+        mssql do
+          table "zzz_parents"
+          repo(AshMssql.TestRepo)
+        end
+
+        actions do
+          defaults([:create, :read, :update, :destroy])
+        end
+
+        attributes do
+          uuid_primary_key(:id)
+          attribute(:name, :string)
+        end
+      end
+
+      defmodule AaaChild do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshMssql.DataLayer
+
+        mssql do
+          table "aaa_children"
+          repo(AshMssql.TestRepo)
+        end
+
+        actions do
+          defaults([:create, :read, :update, :destroy])
+        end
+
+        attributes do
+          uuid_primary_key(:id)
+        end
+
+        relationships do
+          belongs_to(:parent, ZzzParent)
+        end
+      end
+
+      Code.compiler_options(ignore_module_conflict: false)
+
+      defdomain([ZzzParent, AaaChild])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false
+      )
+
+      assert [_file1, file2] =
+               Enum.sort(Path.wildcard("test_migration_path/**/*_migrate_resources*.exs"))
+
+      contents = File.read!(file2)
+
+      parent_pos = :binary.match(contents, "create table(:zzz_parents") |> elem(0)
+      child_pos = :binary.match(contents, "create table(:aaa_children") |> elem(0)
+
+      assert parent_pos < child_pos,
+             "expected zzz_parents to be created before aaa_children, got:\n#{contents}"
+    end
+
     test "ci_string attributes get a sized string column with an explicit CI collation" do
       defposts do
         identities do
