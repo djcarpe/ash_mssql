@@ -641,8 +641,12 @@ defmodule AshMssql.DataLayer do
   defp no_table?(%{from: %{source: {"", _}}}), do: true
   defp no_table?(_), do: false
 
-  defp repo_opts(timeout, nil, _resource) do
-    []
+  defp repo_opts(timeout, tenant, resource) do
+    if tenant && Ash.Resource.Info.multitenancy_strategy(resource) == :context do
+      [prefix: tenant]
+    else
+      []
+    end
     |> add_timeout(timeout)
   end
 
