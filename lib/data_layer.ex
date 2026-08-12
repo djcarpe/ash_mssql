@@ -414,6 +414,7 @@ defmodule AshMssql.DataLayer do
   def can?(_, :expression_calculation_sort), do: true
   def can?(_, :create), do: true
   def can?(_, :select), do: true
+  def can?(_, :action_select), do: true
   def can?(_, :read), do: true
 
   def can?(resource, action) when action in ~w[update destroy]a do
@@ -736,11 +737,41 @@ defmodule AshMssql.DataLayer do
       ecto_changesets = Enum.map(changesets, & &1.attributes)
       resource_for_returning = if options.return_records?, do: resource, else: nil
 
+      # Returned rows are matched back to their changesets by primary key
+      # (`align_results_with_changesets/3`) — and by the upsert keys for
+      # upserts — so those must stay selected regardless of what the action
+      # asks for.
+      action_select =
+        case action_select_with_required(options[:action_select], resource) do
+          nil ->
+            nil
+
+          fields ->
+            fields
+            |> Enum.concat(if options[:upsert?], do: options[:upsert_keys] || [], else: [])
+            |> Enum.uniq()
+        end
+
       result =
         if options[:upsert?] do
-          upsert_all_returning(source, resource, ecto_changesets, options, repo, opts)
+          upsert_all_returning(
+            source,
+            resource,
+            ecto_changesets,
+            options,
+            action_select,
+            repo,
+            opts
+          )
         else
-          insert_all_returning(source, ecto_changesets, repo, resource_for_returning, opts)
+          insert_all_returning(
+            source,
+            ecto_changesets,
+            repo,
+            resource_for_returning,
+            action_select,
+            opts
+          )
         end
 
       case result do
@@ -809,17 +840,17 @@ defmodule AshMssql.DataLayer do
     end
   end
 
-  defp insert_all_returning(source, entries, repo, nil, opts) do
+  defp insert_all_returning(source, entries, repo, nil, _action_select, opts) do
     repo.insert_all(source, entries, opts)
   end
 
-  defp insert_all_returning(source, entries, repo, _resource, opts) do
+  defp insert_all_returning(source, entries, repo, _resource, action_select, opts) do
     # MSSQL supports the OUTPUT clause (the RETURNING-equivalent), which Ecto's
     # Tds adapter exposes via `:returning`. This gives Postgres-parity batch
     # inserts that return the inserted rows directly — including server-generated
     # identity/uuid keys — instead of a fragile SCOPE_IDENTITY()/reload round-trip
     # (SCOPE_IDENTITY() is batch-scoped and would be NULL on a separate query).
-    repo.insert_all(source, entries, Keyword.put(opts, :returning, true))
+    repo.insert_all(source, entries, Keyword.put(opts, :returning, action_select || true))
   end
 
   # Ecto's Tds adapter only supports `on_conflict: :raise`, so upsert cannot go
@@ -830,7 +861,7 @@ defmodule AshMssql.DataLayer do
   # Known limitations vs Postgres: atomic expressions in the update clause
   # (`{:atomic, :upsert}`) are not supported (see `can?/2`); the update assigns
   # the incoming values directly.
-  defp upsert_all_returning(source, resource, entries, options, repo, opts) do
+  defp upsert_all_returning(source, resource, entries, options, action_select, repo, opts) do
     table = upsert_table(source, resource)
     prefix = opts[:prefix]
     qualified_table = if prefix, do: "[#{prefix}].[#{table}]", else: "[#{table}]"
@@ -847,8 +878,19 @@ defmodule AshMssql.DataLayer do
       |> Enum.filter(&(&1 in columns))
       |> Enum.reject(&(&1 in keys))
 
-    # OUTPUT the full row so we can load structs back (parity with RETURNING).
-    output_columns = resource.__schema__(:fields) |> Enum.map(&resource.__schema__(:field_source, &1))
+    # OUTPUT what the action selects (parity with RETURNING); the full row when
+    # there is no action_select. Filtering the schema's field list (rather than
+    # mapping action_select directly) keeps unknown names out of the SQL.
+    output_fields =
+      case action_select do
+        nil -> resource.__schema__(:fields)
+        fields -> Enum.filter(resource.__schema__(:fields), &(&1 in fields))
+      end
+
+    output_columns =
+      output_fields
+      |> Enum.map(&resource.__schema__(:field_source, &1))
+      |> Enum.uniq()
 
     {values_sql, params} = upsert_values(entries, columns, resource, repo)
 
@@ -888,6 +930,26 @@ defmodule AshMssql.DataLayer do
 
   defp upsert_table({table, _resource}, _fallback), do: table
   defp upsert_table(_source, resource), do: AshMssql.DataLayer.Info.table(resource)
+
+  # `nil` action_select means the caller didn't restrict the selection (or the
+  # capability isn't in play) and the full row is returned. Otherwise the
+  # primary key is always retained, and so are `always_select?` attributes:
+  # ash core's NotLoaded masking assumes the data layer loaded them, so
+  # dropping them here would surface them as loaded `nil`s.
+  defp action_select_with_required(nil, _resource), do: nil
+
+  defp action_select_with_required(fields, resource) do
+    fields
+    |> Enum.concat(Ash.Resource.Info.primary_key(resource))
+    |> Enum.concat(Ash.Resource.Info.always_selected_attribute_names(resource))
+    |> Enum.uniq()
+  end
+
+  defp apply_action_select(query, nil), do: query
+
+  defp apply_action_select(query, fields) do
+    Ecto.Query.select(query, [row], struct(row, ^fields))
+  end
 
   # Builds the MERGE VALUES clause (`(@1, @2), (@3, @4)`) plus the ordered,
   # adapter-dumped parameter list.
@@ -982,6 +1044,7 @@ defmodule AshMssql.DataLayer do
     case bulk_create(resource, [changeset], %{
            single?: true,
            tenant: changeset.tenant,
+           action_select: changeset.action_select,
            return_records?: true
          }) do
       {:ok, [result]} ->
@@ -1461,6 +1524,7 @@ defmodule AshMssql.DataLayer do
            tenant: changeset.tenant,
            upsert_keys: keys,
            upsert_fields: upsert_fields,
+           action_select: changeset.action_select,
            return_records?: true
          }) do
       {:ok, [result]} ->
@@ -1501,7 +1565,16 @@ defmodule AshMssql.DataLayer do
           schema -> Keyword.put(repo_opts(nil, changeset.tenant, resource), :prefix, schema)
         end
 
-      case insert_all_returning(source, [changeset.attributes], repo, resource, opts) do
+      action_select = action_select_with_required(changeset.action_select, resource)
+
+      case insert_all_returning(
+             source,
+             [changeset.attributes],
+             repo,
+             resource,
+             action_select,
+             opts
+           ) do
         {_count, [record]} -> {:ok, record}
         {_count, _} -> {:ok, nil}
       end
@@ -1518,7 +1591,7 @@ defmodule AshMssql.DataLayer do
 
     upsert_fields =
       (changeset.context[:private][:upsert_fields] ||
-         (Map.keys(changeset.attributes) ++ Keyword.keys(update_defaults)))
+         Map.keys(changeset.attributes) ++ Keyword.keys(update_defaults))
       |> Kernel.--(Map.get(changeset, :defaults, []))
       |> Kernel.--(keys)
       |> Kernel.--(atomic_keys)
@@ -1541,9 +1614,18 @@ defmodule AshMssql.DataLayer do
       {:ok, query} ->
         repo.update_all(query, [], repo_opts(nil, changeset.tenant, resource))
 
+        # Atomics are computed in the database, so they must be part of the
+        # reload even when the action's select doesn't ask for them.
+        reload_select =
+          case action_select_with_required(changeset.action_select, resource) do
+            nil -> nil
+            fields -> Enum.uniq(fields ++ atomic_keys)
+          end
+
         result =
           from(row in resource, as: ^0)
           |> Ecto.Query.where(^key_values)
+          |> apply_action_select(reload_select)
           |> repo.all()
           |> List.first()
 
@@ -1643,7 +1725,23 @@ defmodule AshMssql.DataLayer do
     try do
       query = from(row in resource, as: ^0)
 
-      select = Keyword.keys(changeset.atomics) ++ Ash.Resource.Info.primary_key(resource)
+      # Atomics are computed in the database, so their values must come from
+      # the reload. The action_select fields only fill in whatever the
+      # changeset doesn't already carry — attributes written by this changeset
+      # stay authoritative, so a concurrent writer (with `transaction?: false`)
+      # can't leak its values into our result.
+      reloaded_action_select =
+        changeset.action_select
+        |> List.wrap()
+        |> Enum.concat(Ash.Resource.Info.always_selected_attribute_names(resource))
+        |> Enum.uniq()
+        |> Kernel.--(Keyword.keys(changeset.atomics) ++ Map.keys(changeset.attributes))
+
+      select =
+        Enum.uniq(
+          Keyword.keys(changeset.atomics) ++
+            reloaded_action_select ++ Ash.Resource.Info.primary_key(resource)
+        )
 
       query =
         query
@@ -1677,7 +1775,7 @@ defmodule AshMssql.DataLayer do
           result =
             from(row in resource, as: ^0, select: ^select)
             |> pkey_filter(changeset.data)
-            |> repo.all()
+            |> repo.all(Keyword.take(repo_opts, [:prefix, :timeout]))
 
           case {count, result} do
             {0, []} ->
@@ -1691,7 +1789,9 @@ defmodule AshMssql.DataLayer do
               record =
                 changeset.data
                 |> Map.merge(changeset.attributes)
-                |> Map.merge(Map.take(result, Keyword.keys(changeset.atomics)))
+                |> Map.merge(
+                  Map.take(result, Keyword.keys(changeset.atomics) ++ reloaded_action_select)
+                )
 
               {:ok, record}
           end
