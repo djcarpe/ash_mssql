@@ -40,7 +40,8 @@ if Mix.env() == :test do
     port: 1433
 
   # sobelow_skip ["Config.Secrets"]
-  config :ash_mssql, AshMssql.TestNoSandboxRepo, password: System.get_env("TDS_PASSWORD") || "YourStrong@Passw0rd"
+  config :ash_mssql, AshMssql.TestNoSandboxRepo,
+    password: System.get_env("TDS_PASSWORD") || "YourStrong@Passw0rd"
 
   config :ash_mssql, AshMssql.TestNoSandboxRepo,
     migration_primary_key: [name: :id, type: :binary_id]
