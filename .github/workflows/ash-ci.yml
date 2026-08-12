@@ -5,6 +5,12 @@ on:
       HEX_API_KEY:
         required: false
     inputs:
+      # When false, only the deps/build/test jobs run — used to test against
+      # additional SQL Server versions without duplicating the
+      # version-independent lint/docs/dialyzer jobs.
+      lint:
+        type: boolean
+        default: true
       spark-formatter:
         type: boolean
         default: true
@@ -14,21 +20,6 @@ on:
       sobelow:
         type: boolean
         default: true
-      postgres:
-        type: boolean
-        default: false
-      ash_postgres:
-        type: boolean
-        default: true
-      ecto_postgres:
-        type: boolean
-        default: false
-      postgres-version:
-        type: string
-        default: "14"
-      sqlite:
-        type: boolean
-        default: false
       mssql:
         type: boolean
         default: false
@@ -41,13 +32,7 @@ on:
       mssql-version:
         type: string
         default: "2022-latest"
-      hex-api-key:
-        type: string
-      sat-solver:
-        type: string
-        default: "Picosat"
 env:
-  PG_VERSION: ${{inputs.postgres-version}}
   MSSQL_VERSION: ${{inputs.mssql-version}}
 jobs:
   deps:
@@ -61,6 +46,7 @@ jobs:
     name: audit
     runs-on: ubuntu-latest
     needs: deps
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-hex-audit@main
@@ -81,6 +67,7 @@ jobs:
     name: mix docs
     runs-on: ubuntu-latest
     needs: build-dev
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-docs@main
@@ -96,6 +83,7 @@ jobs:
     name: mix format --check-formatted
     runs-on: ubuntu-latest
     needs: build-test
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-format@main
@@ -106,6 +94,7 @@ jobs:
     name: mix spark.formatter --check
     runs-on: ubuntu-latest
     needs: build-test
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-task@main
@@ -118,6 +107,7 @@ jobs:
     name: mix spark.cheat_sheets --check
     runs-on: ubuntu-latest
     needs: build-test
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-task@main
@@ -129,6 +119,7 @@ jobs:
     name: mix sobelow
     runs-on: ubuntu-latest
     needs: build-test
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-task@main
@@ -140,16 +131,17 @@ jobs:
     name: mix credo --strict
     runs-on: ubuntu-latest
     needs: build-test
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-credo@main
-        if: ${{inputs.spark-formatter}}
         with:
           mix-env: test
   unused-deps:
     name: mix deps.unlock --check-unused
     runs-on: ubuntu-latest
     needs: build-test
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-task@main
@@ -161,17 +153,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-test
     services:
-      postgres:
-        image: postgres:${{inputs.postgres-version}}
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
       mssql:
         image: mcr.microsoft.com/mssql/server:${{inputs.mssql-version}}
         env:
@@ -188,51 +169,6 @@ jobs:
           - 1433:1433
     steps:
       - uses: actions/checkout@v4
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        if: ${{inputs.postgres && inputs.ash_postgres}}
-        with:
-          mix-env: test
-          task: ash_postgres.generate_migrations --check
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ash_postgres.create
-        if: ${{inputs.postgres && inputs.ash_postgres}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ecto.create
-        if: ${{inputs.postgres && inputs.ecto_postgres}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ash_postgres.migrate
-        if: ${{inputs.postgres && inputs.ash_postgres}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ash_postgres.migrate --tenants
-        if: ${{inputs.postgres && inputs.ash_postgres}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ecto.migrate
-        if: ${{inputs.postgres && inputs.ecto_postgres}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ash_sqlite.generate_migrations --check
-        if: ${{inputs.sqlite}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ash_sqlite.create
-        if: ${{inputs.sqlite}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ash_sqlite.migrate
-        if: ${{inputs.sqlite}}
       - uses: team-alembic/staple-actions/actions/mix-task@main
         if: ${{inputs.mssql && inputs.ash_mssql}}
         with:
@@ -261,15 +197,12 @@ jobs:
       - uses: team-alembic/staple-actions/actions/mix-test@main
         with:
           mix-env: test
-        env:
-          PGUSER: postgres
-          PGPASS: postgres
-          PGHOST: postgres
 
   dialyzer:
     name: mix dialyzer
     runs-on: ubuntu-latest
     needs: build-test
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-dialyzer@main
@@ -280,6 +213,7 @@ jobs:
     name: MIX_ENV=dev mix.compile
     runs-on: ubuntu-latest
     needs: deps
+    if: ${{inputs.lint}}
     steps:
       - uses: actions/checkout@v4
       - uses: team-alembic/staple-actions/actions/mix-compile@main

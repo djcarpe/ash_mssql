@@ -7,14 +7,22 @@ on:
   pull_request:
     branches: [main]
 jobs:
+  # Full run: lint/docs/dialyzer plus tests against the oldest supported
+  # SQL Server.
   ash-ci:
-    strategy:
-      fail-fast: false
-      matrix:
-        mssql-version: ["2022-latest", "2025-latest"]
     uses: ./.github/workflows/ash-ci.yml
     with:
       mssql: true
-      mssql-version: ${{matrix.mssql-version}}
+      mssql-version: "2022-latest"
+    secrets:
+      HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+  # Tests only against newer SQL Server versions — the lint jobs don't
+  # depend on the server version, so they run once above.
+  ash-ci-mssql-2025:
+    uses: ./.github/workflows/ash-ci.yml
+    with:
+      mssql: true
+      mssql-version: "2025-latest"
+      lint: false
     secrets:
       HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
