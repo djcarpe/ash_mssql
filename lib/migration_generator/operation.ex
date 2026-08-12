@@ -193,12 +193,18 @@ defmodule AshMssql.MigrationGenerator.Operation do
           "size: #{attribute[:size]}"
         end
 
+      collation =
+        if attribute[:collation] do
+          "collation: #{inspect(attribute[:collation])}"
+        end
+
       [
         "add #{inspect(attribute.source)}",
         "#{inspect(attribute.type)}",
         maybe_add_null(attribute.allow_nil?),
         maybe_add_default(attribute.default),
         size,
+        collation,
         maybe_add_primary_key(attribute.primary_key?)
       ]
       |> join()
@@ -281,7 +287,25 @@ defmodule AshMssql.MigrationGenerator.Operation do
           ", null: #{attribute.allow_nil?}"
         end
 
-      "#{null}#{default}#{primary_key}"
+      # size parameterizes varchar/nvarchar/char etc. `modify` re-emits the
+      # full column definition, so the size must be included whenever the
+      # attribute has one — not just when it changed: a bare VARCHAR/NVARCHAR
+      # in ALTER COLUMN means length 1 to SQL Server, so dropping the size
+      # from a null/default-only modify would silently truncate the column.
+      size =
+        if attribute[:size] do
+          ", size: #{attribute[:size]}"
+        end
+
+      # Like size, the collation is part of the full column definition that
+      # `modify` re-emits; without it an ALTER COLUMN would silently reset
+      # the column to the database default collation.
+      collation =
+        if attribute[:collation] do
+          ", collation: #{inspect(attribute[:collation])}"
+        end
+
+      "#{null}#{default}#{primary_key}#{size}#{collation}"
     end
 
     def up(%{

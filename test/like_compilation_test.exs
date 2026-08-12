@@ -1,7 +1,9 @@
 defmodule AshMssql.LikeCompilationTest do
   @moduledoc """
-  Verifies that `like`/`ilike` (and related string predicates) compile to native
-  MSSQL SQL, without requiring a live SQL Server connection.
+  Verifies that `like`/`ilike` (and related string predicates) compile to
+  T-SQL with postgres-parity case semantics: `like` and the case-sensitive
+  string predicates force a case-sensitive collation, `ilike` and ci_string
+  operands lowercase both sides.
 
   These tests render the query to SQL with `Repo.to_sql/2` (which compiles but
   does not execute), so they run without a database.
@@ -21,48 +23,87 @@ defmodule AshMssql.LikeCompilationTest do
   end
 
   describe "like/2" do
-    test "compiles to a native LIKE" do
+    test "forces a case-sensitive collation (postgres parity)" do
       sql =
         Post
         |> Ash.Query.filter(like(title, "%aTc%"))
         |> to_sql()
 
-      assert sql =~ ~r/\bLIKE\b/i
+      assert sql =~ ~r/COLLATE Latin1_General_CS_AS LIKE/i
+    end
+
+    test "on a ci_string attribute lowercases both sides (citext parity)" do
+      sql =
+        Post
+        |> Ash.Query.filter(like(category, "%aTc%"))
+        |> to_sql()
+
+      assert sql =~ ~r/LOWER\(.*\) LIKE LOWER\(/is
+      refute sql =~ ~r/COLLATE Latin1_General_CS_AS/i
     end
   end
 
   describe "ilike/2" do
-    test "compiles to a native LIKE with no LOWER() or COLLATE gymnastics" do
+    test "lowercases both sides" do
       sql =
         Post
         |> Ash.Query.filter(ilike(title, "%aTc%"))
         |> to_sql()
 
-      assert sql =~ ~r/\bLIKE\b/i
-      refute sql =~ ~r/LOWER/i
-      refute sql =~ ~r/COLLATE/i
+      assert sql =~ ~r/LOWER\(.*\) LIKE LOWER\(/is
+      refute sql =~ ~r/COLLATE Latin1_General_CS_AS/i
     end
   end
 
   describe "ci_string attribute" do
-    test "filters without emitting a COLLATE clause" do
+    test "equality casts through a deterministic case-insensitive collation" do
       sql =
         Post
         |> Ash.Query.filter(category == "hello")
         |> to_sql()
 
-      refute sql =~ ~r/COLLATE/i
+      assert sql =~ ~r/COLLATE SQL_Latin1_General_CP1_CI_AS/i
     end
   end
 
   describe "contains/2" do
-    test "a dynamic (non-literal) contains uses CHARINDEX(needle, haystack)" do
+    test "a dynamic (non-literal) contains uses case-sensitive CHARINDEX(needle, haystack)" do
       sql =
         Post
         |> Ash.Query.filter(contains(title, type))
         |> to_sql()
 
       assert sql =~ ~r/CHARINDEX/i
+      assert sql =~ ~r/COLLATE Latin1_General_CS_AS/i
+    end
+
+    test "a literal contains compiles to a case-sensitive LIKE" do
+      sql =
+        Post
+        |> Ash.Query.filter(contains(title, "needle"))
+        |> to_sql()
+
+      assert sql =~ ~r/COLLATE Latin1_General_CS_AS LIKE/i
+    end
+
+    test "contains on a ci_string attribute lowercases instead of collating" do
+      sql =
+        Post
+        |> Ash.Query.filter(contains(category, "needle"))
+        |> to_sql()
+
+      assert sql =~ ~r/LOWER\(/i
+      refute sql =~ ~r/COLLATE Latin1_General_CS_AS/i
+    end
+
+    test "a ci_string attribute as the needle also lowercases instead of collating" do
+      sql =
+        Post
+        |> Ash.Query.filter(contains(title, category))
+        |> to_sql()
+
+      assert sql =~ ~r/LOWER\(/i
+      refute sql =~ ~r/COLLATE Latin1_General_CS_AS/i
     end
   end
 end

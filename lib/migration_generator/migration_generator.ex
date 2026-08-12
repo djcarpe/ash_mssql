@@ -7,6 +7,11 @@ defmodule AshMssql.MigrationGenerator do
 
   alias AshMssql.MigrationGenerator.{Operation, Phase}
 
+  # Deterministic case-insensitive (accent-sensitive, matching postgres
+  # citext) collation for ci_string columns. Must agree with the COLLATE
+  # casts in AshMssql.SqlImplementation.
+  @ci_string_collation "SQL_Latin1_General_CP1_CI_AS"
+
   defstruct snapshot_path: nil,
             migration_path: nil,
             name: nil,
@@ -352,29 +357,38 @@ defmodule AshMssql.MigrationGenerator do
     |> Enum.reject(&is_nil/1)
   end
 
+  # `visited`/`in_progress` are plain maps used as sets (MapSet's opaque type
+  # trips dialyzer across the recursion here).
   defp topological_sort(tables, deps) do
     {ordered, _visited} =
-      Enum.reduce(tables, {[], MapSet.new()}, fn table, {ordered, visited} ->
-        topo_visit(table, deps, ordered, visited, MapSet.new())
+      Enum.reduce(tables, {[], %{}}, fn table, {ordered, visited} ->
+        topo_visit(table, deps, ordered, visited, %{})
       end)
 
-    # `ordered` is in referenced-first order: a referenced table always precedes
-    # any table that references it.
+    # topo_visit prepends each table after visiting its dependencies, so
+    # `ordered` is DEPENDENTS-first (a table precedes the tables it
+    # references). That looks backwards for inline-FK `CREATE TABLE`, but it
+    # is exactly the seed `sort_operations/2` needs: its insertion sort
+    # re-inserts each operation *before* the first operation it must follow,
+    # which net-inverts seeded pairs — feeding it referenced-first input
+    # makes referencing tables come out first and the migration fail. The
+    # end-to-end create order is covered by the "referenced table is created
+    # before the table referencing it" migration generator test.
     ordered
   end
 
   defp topo_visit(table, deps, ordered, visited, in_progress) do
     cond do
-      MapSet.member?(visited, table) ->
+      Map.has_key?(visited, table) ->
         {ordered, visited}
 
       # Cycle: a referenced table transitively references us. Inline FKs cannot
       # express this; stop descending and let best-effort order stand.
-      MapSet.member?(in_progress, table) ->
+      Map.has_key?(in_progress, table) ->
         {ordered, visited}
 
       true ->
-        in_progress = MapSet.put(in_progress, table)
+        in_progress = Map.put(in_progress, table, true)
 
         {ordered, visited} =
           deps
@@ -387,7 +401,7 @@ defmodule AshMssql.MigrationGenerator do
             end
           end)
 
-        {[table | ordered], MapSet.put(visited, table)}
+        {[table | ordered], Map.put(visited, table, true)}
     end
   end
 
@@ -548,10 +562,16 @@ defmodule AshMssql.MigrationGenerator do
             Enum.max(sizes)
         end
 
+      collation =
+        attributes
+        |> Enum.map(&Map.get(&1, :collation))
+        |> Enum.find(& &1)
+
       %{
         source: source,
         type: merge_types(Enum.map(attributes, & &1.type), source, table),
         size: size,
+        collation: collation,
         default: merge_defaults(Enum.map(attributes, & &1.default)),
         allow_nil?: Enum.any?(attributes, & &1.allow_nil?) || Enum.count(attributes) < count,
         generated?: Enum.any?(attributes, & &1.generated?),
@@ -2163,31 +2183,41 @@ defmodule AshMssql.MigrationGenerator do
         AshMssql.DataLayer.Info.migration_types(resource)[attribute.name] ||
           migration_type(attribute.type, attribute.constraints)
 
+      Code.ensure_loaded!(repo)
+
       type =
-        if :erlang.function_exported(repo, :override_migration_type, 1) do
+        if function_exported?(repo, :override_migration_type, 1) do
           repo.override_migration_type(type)
         else
           type
         end
 
-      {type, size} =
+      {type, size, collation} =
         case type do
           {:varchar, size} ->
-            {:varchar, size}
+            {:varchar, size, nil}
 
           {:binary, size} ->
-            {:binary, size}
+            {:binary, size, nil}
+
+          # Internal marker from migration_type/2 for ci_string storage: a
+          # plain sized string column plus an explicit deterministic
+          # case-insensitive collation (rendered via ecto's collation:
+          # column option).
+          {:ci_string, size} ->
+            {:string, size, @ci_string_collation}
 
           {other, size} when is_atom(other) and is_integer(size) ->
-            {other, size}
+            {other, size, nil}
 
           other ->
-            {other, nil}
+            {other, nil, nil}
         end
 
       attribute
       |> Map.put(:default, default)
       |> Map.put(:size, size)
+      |> Map.put(:collation, collation)
       |> Map.put(:type, type)
       |> Map.put(:source, attribute.source || attribute.name)
       |> Map.drop([:name, :constraints])
@@ -2269,9 +2299,22 @@ defmodule AshMssql.MigrationGenerator do
   defp migration_type({:array, type}, constraints),
     do: {:array, migration_type(type, constraints)}
 
-  # MSSQL: ci_string is a plain (N)VARCHAR; case-insensitivity comes from the
-  # column/database collation (default *_CI_AS), so no explicit COLLATE clause.
-  defp migration_type(Ash.Type.CiString, _), do: :string
+  # ci_string columns carry an explicit deterministic case-insensitive
+  # collation rather than inheriting the database default: on a server or
+  # database created with a case-sensitive collation, uniqueness (identities/
+  # unique indexes), ORDER BY, and GROUP BY on ci_string columns would
+  # otherwise silently become case-sensitive — semantics the query layer's
+  # COLLATE casts cannot fix. CI_AS (not CI_AI) matches postgres citext, which
+  # is accent-sensitive, and the query layer's LOWER()-based ci comparisons.
+  #
+  # `{:ci_string, size}` is an internal marker resolved by `attributes/2`
+  # into a `:string` column of that size plus ecto's `collation:` column
+  # option (@ci_string_collation), so it composes with size/null/default
+  # instead of smuggling SQL text through the type atom. The size honors
+  # the attribute's max_length constraint (NVARCHAR(255) otherwise).
+  defp migration_type(Ash.Type.CiString, constraints),
+    do: {:ci_string, constraints[:max_length] || 255}
+
   defp migration_type(Ash.Type.UUID, _), do: :uuid
   defp migration_type(Ash.Type.Integer, _), do: :bigint
 
@@ -2285,15 +2328,17 @@ defmodule AshMssql.MigrationGenerator do
     if Code.ensure_loaded?(type) and function_exported?(type, :mssql_migration_type, 1) do
       type.mssql_migration_type(constraints)
     else
-      migration_type_from_storage_type(Ash.Type.storage_type(type, constraints))
+      migration_type_from_storage_type(Ash.Type.storage_type(type, constraints), constraints)
     end
   end
 
-  defp migration_type_from_storage_type(:string), do: :string
+  defp migration_type_from_storage_type(:string, _constraints), do: :string
 
-  defp migration_type_from_storage_type(:ci_string), do: :string
+  # See migration_type(Ash.Type.CiString, _) above.
+  defp migration_type_from_storage_type(:ci_string, constraints),
+    do: {:ci_string, constraints[:max_length] || 255}
 
-  defp migration_type_from_storage_type(storage_type), do: storage_type
+  defp migration_type_from_storage_type(storage_type, _constraints), do: storage_type
 
   defp foreign_key?(relationship) do
     Ash.DataLayer.data_layer(relationship.source) == AshMssql.DataLayer &&
@@ -2393,6 +2438,8 @@ defmodule AshMssql.MigrationGenerator do
       type
       |> unwrap_type()
       |> Ash.Type.get_type()
+
+    Code.ensure_loaded!(type)
 
     if function_exported?(type, :value_to_mssql_default, 3) do
       type.value_to_mssql_default(type, constraints, value)
@@ -2527,6 +2574,9 @@ defmodule AshMssql.MigrationGenerator do
     attribute
     |> Map.put(:type, type)
     |> Map.put(:size, size)
+    # Snapshots written before collation support lack the key; default it so
+    # attribute equality doesn't flag every column as changed.
+    |> Map.put_new(:collation, nil)
     |> Map.put_new(:default, "nil")
     |> Map.update!(:default, &(&1 || "nil"))
     |> Map.update!(:references, fn
@@ -2604,8 +2654,12 @@ defmodule AshMssql.MigrationGenerator do
     {:binary, size}
   end
 
+  # to_atom rather than to_existing_atom: a custom Ash.Type's storage_type
+  # (e.g. `{:nvarchar, 100}`) can name a type atom nothing has created yet
+  # when the old snapshot is read back. The set of names is bounded by the
+  # types appearing in snapshots, so atom creation is safe here.
   defp load_type([string, size]) when is_binary(string) and is_integer(size) do
-    {String.to_existing_atom(string), size}
+    {String.to_atom(string), size}
   end
 
   defp load_type(type) do

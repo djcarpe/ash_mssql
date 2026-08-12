@@ -78,7 +78,6 @@ defmodule AshMssql.MixProject do
         "documentation/topics/development/testing.md",
         "documentation/topics/advanced/expressions.md",
         "documentation/topics/advanced/manual-relationships.md",
-        "documentation/dsls/DSL-AshMssql.DataLayer.md",
         {"documentation/dsls/DSL-AshMssql.DataLayer.md",
          search_data: Spark.Docs.search_data_for(AshMssql.DataLayer)},
         "CHANGELOG.md"

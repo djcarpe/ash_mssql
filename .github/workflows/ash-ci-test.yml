@@ -1,0 +1,45 @@
+name: Ash CI Test
+on:
+  workflow_call:
+    inputs:
+      mssql-version:
+        type: string
+        default: "2022-latest"
+env:
+  MSSQL_VERSION: ${{inputs.mssql-version}}
+jobs:
+  test:
+    name: mix test
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:${{inputs.mssql-version}}
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: YourStrong@Passw0rd
+          MSSQL_PID: Developer
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P YourStrong@Passw0rd -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=20s
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/mix-task@main
+        with:
+          mix-env: test
+          task: ash_mssql.generate_migrations --check
+      - uses: team-alembic/staple-actions/actions/mix-task@main
+        with:
+          mix-env: test
+          task: ash_mssql.create
+      - uses: team-alembic/staple-actions/actions/mix-task@main
+        with:
+          mix-env: test
+          task: ash_mssql.migrate
+      - uses: team-alembic/staple-actions/actions/mix-test@main
+        with:
+          mix-env: test

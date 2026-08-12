@@ -1,0 +1,41 @@
+name: Ash CI Dev
+# Only called from elixir.yml in this repo. Every job here needs
+# MIX_ENV=dev compiled code, so they chain off the internal build-dev
+# warmer and never wait on the caller's test-env build.
+on:
+  workflow_call:
+jobs:
+  build-dev:
+    name: MIX_ENV=dev mix.compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/install-elixir@main
+      - uses: team-alembic/staple-actions/actions/mix-compile@main
+        with:
+          mix-env: dev
+
+  build-docs:
+    name: mix docs
+    runs-on: ubuntu-latest
+    needs: build-dev
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/mix-docs@main
+        with:
+          mix-env: dev
+          use-cache?: false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs
+          path: doc/
+
+  dialyzer:
+    name: mix dialyzer
+    runs-on: ubuntu-latest
+    needs: build-dev
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/mix-dialyzer@main
+        with:
+          mix-env: dev

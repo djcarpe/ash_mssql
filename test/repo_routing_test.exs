@@ -6,7 +6,7 @@ defmodule AshMssql.RepoRoutingTest do
   """
   use AshMssql.RepoCase, async: false
 
-  alias AshMssql.Test.{RepoRouter, ReplicaPost}
+  alias AshMssql.Test.{ReplicaPost, RepoRouter}
 
   setup do
     start_supervised!(RepoRouter)

@@ -438,6 +438,8 @@ defmodule AshMssql.DataLayer do
 
   def can?(_, :timeout), do: true
   def can?(_, {:filter_expr, %Ash.Query.Function.StringJoin{}}), do: false
+  # SQL Server has no array type; STRING_SPLIT returns rows, not a value
+  def can?(_, {:filter_expr, %Ash.Query.Function.StringSplit{}}), do: false
   def can?(_, {:filter_expr, _}), do: true
   def can?(_, :nested_expressions), do: true
   def can?(_, {:query_aggregate, _}), do: true
@@ -641,9 +643,16 @@ defmodule AshMssql.DataLayer do
   defp no_table?(%{from: %{source: {"", _}}}), do: true
   defp no_table?(_), do: false
 
-  defp repo_opts(timeout, nil, _resource) do
-    []
-    |> add_timeout(timeout)
+  # The tenant is accepted (Ash passes it through for every multitenancy
+  # strategy, and for plain resources when set explicitly) but adds no repo
+  # options: attribute-strategy multitenancy filters at the query layer, and
+  # context (schema-prefix) multitenancy is not supported by this data layer
+  # (`can?(:multitenancy)` is false, so ash rejects `strategy :context` at
+  # compile time). If that capability is ever enabled, this must return
+  # `[prefix: tenant]` for context strategy — and destroy/2 plus the read
+  # paths must start passing their tenant through as well.
+  defp repo_opts(timeout, _tenant, _resource) do
+    add_timeout([], timeout)
   end
 
   defp repo_opts(timeout, _resource) do
