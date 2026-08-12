@@ -700,6 +700,52 @@ defmodule AshMssql.FilterTest do
                |> Ash.read!()
     end
 
+    test "contains treats LIKE wildcards as literal characters" do
+      for title <- ["100% real", "100x real", "a_b", "axb", "[tag] post", "xtagx post"] do
+        Post
+        |> Ash.Changeset.for_create(:create, %{title: title})
+        |> Ash.create!()
+      end
+
+      assert [%Post{title: "100% real"}] =
+               Post
+               |> Ash.Query.filter(contains(title, "0% r"))
+               |> Ash.read!()
+
+      assert [%Post{title: "a_b"}] =
+               Post
+               |> Ash.Query.filter(contains(title, "a_b"))
+               |> Ash.read!()
+
+      assert [%Post{title: "[tag] post"}] =
+               Post
+               |> Ash.Query.filter(contains(title, "[tag]"))
+               |> Ash.read!()
+    end
+
+    test "string_starts_with/string_ends_with treat LIKE wildcards as literal characters" do
+      for title <- ["100% real", "100x real", "[tag] post", "xtagx post", "trailing%"] do
+        Post
+        |> Ash.Changeset.for_create(:create, %{title: title})
+        |> Ash.create!()
+      end
+
+      assert [%Post{title: "100% real"}] =
+               Post
+               |> Ash.Query.filter(string_starts_with(title, "100% "))
+               |> Ash.read!()
+
+      assert [%Post{title: "[tag] post"}] =
+               Post
+               |> Ash.Query.filter(string_starts_with(title, "[tag]"))
+               |> Ash.read!()
+
+      assert [%Post{title: "trailing%"}] =
+               Post
+               |> Ash.Query.filter(string_ends_with(title, "g%"))
+               |> Ash.read!()
+    end
+
     test "string_starts_with/string_ends_with work with dynamic (non-literal) needles" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})

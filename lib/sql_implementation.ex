@@ -77,21 +77,46 @@ defmodule AshMssql.SqlImplementation do
     {left_expr, acc} =
       AshSql.Expr.dynamic_expr(query, left, bindings, pred_embedded? || embedded?, :string, acc)
 
-    {right_expr, acc} =
-      AshSql.Expr.dynamic_expr(query, right, bindings, pred_embedded? || embedded?, :string, acc)
+    {inner_dyn, acc} =
+      case right do
+        string_or_ci when is_binary(string_or_ci) or is_struct(string_or_ci, Ash.CiString) ->
+          # Literal needle: a LIKE pattern (with wildcards escaped) instead of
+          # CHARINDEX, so a starts_with prefix pattern stays sargable.
+          string =
+            case string_or_ci do
+              %Ash.CiString{string: string} -> string
+              string -> string
+            end
 
-    inner_dyn =
-      case mod do
-        Ash.Query.Function.Contains ->
-          Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) > 0)", ^right_expr, ^left_expr))
+          pattern = like_pattern(mod, string)
+          {Ecto.Query.dynamic(like(^left_expr, ^pattern)), acc}
 
-        Ash.Query.Function.StringStartsWith ->
-          Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) = 1)", ^right_expr, ^left_expr))
+        other ->
+          {right_expr, acc} =
+            AshSql.Expr.dynamic_expr(
+              query,
+              other,
+              bindings,
+              pred_embedded? || embedded?,
+              :string,
+              acc
+            )
 
-        Ash.Query.Function.StringEndsWith ->
-          Ecto.Query.dynamic(
-            fragment("(CHARINDEX(REVERSE((?)), REVERSE((?))) = 1)", ^right_expr, ^left_expr)
-          )
+          dyn =
+            case mod do
+              Ash.Query.Function.Contains ->
+                Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) > 0)", ^right_expr, ^left_expr))
+
+              Ash.Query.Function.StringStartsWith ->
+                Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) = 1)", ^right_expr, ^left_expr))
+
+              Ash.Query.Function.StringEndsWith ->
+                Ecto.Query.dynamic(
+                  fragment("(CHARINDEX(REVERSE((?)), REVERSE((?))) = 1)", ^right_expr, ^left_expr)
+                )
+            end
+
+          {dyn, acc}
       end
 
     if type != Ash.Type.Boolean do
@@ -380,6 +405,20 @@ defmodule AshMssql.SqlImplementation do
         _type
       ) do
     :error
+  end
+
+  defp like_pattern(Ash.Query.Function.Contains, string), do: "%" <> escape_like(string) <> "%"
+  defp like_pattern(Ash.Query.Function.StringStartsWith, string), do: escape_like(string) <> "%"
+  defp like_pattern(Ash.Query.Function.StringEndsWith, string), do: "%" <> escape_like(string)
+
+  # SQL Server LIKE has no default escape character, but `[...]` character
+  # classes can escape all wildcards without needing an ESCAPE clause.
+  defp escape_like(string) do
+    String.replace(string, ["[", "%", "_"], fn
+      "[" -> "[[]"
+      "%" -> "[%]"
+      "_" -> "[_]"
+    end)
   end
 
   # Fragment arguments for an Elixir-truthiness "is falsy" test on `expr`.
