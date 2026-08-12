@@ -242,6 +242,38 @@ defmodule AshMssql.MigrationGeneratorTest do
                ~S[add :name, :string, null: false]
     end
 
+    test "when changing an attribute's size, the modify includes the new size" do
+      defposts do
+        mssql do
+          migration_types(title: {:varchar, 32})
+        end
+
+        identities do
+          identity(:title, [:title])
+        end
+
+        attributes do
+          uuid_primary_key(:id)
+          attribute(:title, :string)
+        end
+      end
+
+      defdomain([Post])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false
+      )
+
+      assert [_file1, file2] =
+               Enum.sort(Path.wildcard("test_migration_path/**/*_migrate_resources*.exs"))
+
+      contents = File.read!(file2)
+      assert contents =~ ~r/modify :title, :varchar.*size: 32/
+    end
+
     test "when renaming a field, it asks if you are renaming it, and renames it if you are" do
       defposts do
         attributes do

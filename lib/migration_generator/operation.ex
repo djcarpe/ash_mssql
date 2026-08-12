@@ -281,7 +281,14 @@ defmodule AshMssql.MigrationGenerator.Operation do
           ", null: #{attribute.allow_nil?}"
         end
 
-      "#{null}#{default}#{primary_key}"
+      # size parameterizes varchar/nvarchar/char etc. Without it, a size-only
+      # change generates a `modify` that silently fails to set the new size.
+      size =
+        if attribute[:size] != old_attribute[:size] && attribute[:size] do
+          ", size: #{attribute[:size]}"
+        end
+
+      "#{null}#{default}#{primary_key}#{size}"
     end
 
     def up(%{
