@@ -7,26 +7,54 @@ on:
   pull_request:
     branches: [main]
 jobs:
-  # Version-independent jobs (lint/docs/dialyzer/compiles) run exactly once.
-  lint:
-    uses: ./.github/workflows/ash-ci.yml
-    with:
-      tests: false
+  # Compiles MIX_ENV=test once and populates the mix-compile action's cache
+  # (keyed on mix-env/OS/arch/.tool-versions/mix.lock). checks and every test
+  # matrix leg wait on this job, so their own internal mix-compile steps hit
+  # that cache instead of each compiling from scratch in parallel.
+  build-test:
+    name: MIX_ENV=test mix.compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/install-elixir@main
+      - uses: team-alembic/staple-actions/actions/mix-compile@main
+        with:
+          mix-env: test
+  auditor:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/mix-hex-audit@main
+      - uses: team-alembic/staple-actions/actions/mix-task@main
+        with:
+          task: deps.audit
+  # Version-independent test-env jobs (format/credo/sobelow/etc.) run exactly
+  # once, after build-test.
+  checks:
+    needs: build-test
+    uses: ./.github/workflows/ash-ci-checks.yml
+  # Dev-env jobs (docs/dialyzer) chain off their own build-dev warmer inside
+  # the called workflow — they don't touch the test-env build, so they don't
+  # wait on build-test.
+  dev:
+    uses: ./.github/workflows/ash-ci-dev.yml
   # Only the test job is matrixed over SQL Server versions.
   test:
+    needs: build-test
     strategy:
       fail-fast: false
       matrix:
         mssql-version: ["2022-latest", "2025-latest"]
-    uses: ./.github/workflows/ash-ci.yml
+    uses: ./.github/workflows/ash-ci-test.yml
     with:
-      mssql: true
       mssql-version: ${{ matrix.mssql-version }}
-      lint: false
   release:
     name: Release
     needs:
-      - lint
+      - auditor
+      - checks
+      - dev
       - test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
