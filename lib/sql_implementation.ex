@@ -249,7 +249,10 @@ defmodule AshMssql.SqlImplementation do
   end
 
   # ash_sql's default emits `length(normalize(...))`; neither function exists
-  # in T-SQL.
+  # in T-SQL. Plain LEN() would be wrong too: it ignores trailing spaces
+  # (LEN('ab  ') = 2), diverging from postgres length() and from Ash's
+  # in-memory String.length/1. Appending a sentinel character makes LEN
+  # count the full string; NULL still propagates through the `+` operator.
   def expr(
         query,
         %Ash.Query.Function.StringLength{arguments: [value], embedded?: pred_embedded?},
@@ -261,11 +264,13 @@ defmodule AshMssql.SqlImplementation do
     {value_expr, acc} =
       AshSql.Expr.dynamic_expr(query, value, bindings, pred_embedded? || embedded?, :string, acc)
 
-    {:ok, Ecto.Query.dynamic(fragment("LEN(?)", ^value_expr)), acc}
+    {:ok, Ecto.Query.dynamic(fragment("(LEN(? + N'x') - 1)", ^value_expr)), acc}
   end
 
   # ash_sql's default emits REGEXP_REPLACE, which only exists on SQL Server
-  # 2025+.
+  # 2025+. TRIM's characters-FROM form (2017+) with an explicit ASCII
+  # whitespace set matches postgres/ash_sql `\s` semantics — plain
+  # LTRIM(RTRIM()) would strip spaces only, missing tabs/newlines.
   def expr(
         query,
         %Ash.Query.Function.StringTrim{arguments: [value], embedded?: pred_embedded?},
@@ -277,7 +282,7 @@ defmodule AshMssql.SqlImplementation do
     {value_expr, acc} =
       AshSql.Expr.dynamic_expr(query, value, bindings, pred_embedded? || embedded?, :string, acc)
 
-    {:ok, Ecto.Query.dynamic(fragment("LTRIM(RTRIM(?))", ^value_expr)), acc}
+    {:ok, Ecto.Query.dynamic(fragment("TRIM(N' \t\n\v\f\r' FROM ?)", ^value_expr)), acc}
   end
 
   def expr(

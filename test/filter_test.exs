@@ -913,10 +913,46 @@ defmodule AshMssql.FilterTest do
                |> Ash.read!()
     end
 
-    test "string_trim uses LTRIM/RTRIM" do
+    test "string_length counts trailing spaces (postgres/String.length parity)" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "ab"})
+      |> Ash.create!()
+
+      # Ash's string type trims on cast, so write the padded value directly.
+      AshMssql.TestRepo.query!("UPDATE posts SET title = @1 WHERE title = @2", ["ab  ", "ab"])
+
+      assert [%Post{}] =
+               Post
+               |> Ash.Query.filter(string_length(title) == 4)
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter(string_length(title) == 2)
+               |> Ash.read!()
+    end
+
+    test "string_trim strips spaces" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "  padded  "})
       |> Ash.create!()
+
+      assert [%Post{}] =
+               Post
+               |> Ash.Query.filter(string_trim(title) == "padded")
+               |> Ash.read!()
+    end
+
+    test "string_trim strips tabs and newlines (postgres/String.trim parity)" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "placeholder"})
+      |> Ash.create!()
+
+      # Ash's string type trims on cast, so write the padded value directly.
+      AshMssql.TestRepo.query!("UPDATE posts SET title = @1 WHERE title = @2", [
+        "\tpadded\n",
+        "placeholder"
+      ])
 
       assert [%Post{}] =
                Post
