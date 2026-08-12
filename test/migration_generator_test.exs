@@ -274,6 +274,41 @@ defmodule AshMssql.MigrationGeneratorTest do
       assert contents =~ ~r/modify :title, :varchar.*size: 32/
     end
 
+    test "ci_string attributes get a sized string column with an explicit CI collation" do
+      defposts do
+        identities do
+          identity(:title, [:title])
+        end
+
+        attributes do
+          uuid_primary_key(:id)
+          attribute(:title, :string)
+          attribute(:name, :ci_string, allow_nil?: false)
+          attribute(:bio, :ci_string, constraints: [max_length: 1000])
+        end
+      end
+
+      defdomain([Post])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false
+      )
+
+      assert [_file1, file2] =
+               Enum.sort(Path.wildcard("test_migration_path/**/*_migrate_resources*.exs"))
+
+      contents = File.read!(file2)
+
+      assert contents =~
+               ~r/add :name, :string, null: false, size: 255, collation: "SQL_Latin1_General_CP1_CI_AS"/
+
+      assert contents =~
+               ~r/add :bio, :string.*size: 1000, collation: "SQL_Latin1_General_CP1_CI_AS"/
+    end
+
     test "when a sized attribute changes another option, the modify keeps the size" do
       defposts do
         mssql do

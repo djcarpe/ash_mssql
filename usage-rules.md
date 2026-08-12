@@ -50,10 +50,15 @@ when writing filters, identities, and expressions.
   `COLLATE Latin1_General_CS_AS`), `ilike` is case-insensitive (both sides
   lowercased). `like` on a `ci_string` attribute matches case-insensitively,
   mirroring postgres citext.
-- **`ci_string`**: maps to `NVARCHAR(255) COLLATE SQL_Latin1_General_CP1_CI_AS`,
-  a deterministic case-insensitive (accent-sensitive, like postgres citext)
-  collation, so equality, uniqueness, and sorting are case-insensitive even on
-  servers/databases created with a case-sensitive default collation.
+- **`ci_string`**: maps to a sized `NVARCHAR` column (honoring the attribute's
+  `max_length` constraint, 255 by default) with an explicit
+  `collation: "SQL_Latin1_General_CP1_CI_AS"` — a deterministic
+  case-insensitive (accent-sensitive, like postgres citext) collation — so
+  equality, uniqueness, and sorting are case-insensitive even on
+  servers/databases created with a case-sensitive default collation. Note:
+  changing an existing column's collation via `ALTER COLUMN` fails on SQL
+  Server if an index depends on the column; drop and recreate the index
+  around the `modify` in that case.
 - **Plain `string` equality**: `==`, `ORDER BY`, and unique indexes on regular
   `string` columns follow the column/database collation (case-insensitive on a
   default SQL Server install; case-sensitive on Postgres). If you need

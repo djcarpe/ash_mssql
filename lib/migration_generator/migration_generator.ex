@@ -7,6 +7,11 @@ defmodule AshMssql.MigrationGenerator do
 
   alias AshMssql.MigrationGenerator.{Operation, Phase}
 
+  # Deterministic case-insensitive (accent-sensitive, matching postgres
+  # citext) collation for ci_string columns. Must agree with the COLLATE
+  # casts in AshMssql.SqlImplementation.
+  @ci_string_collation "SQL_Latin1_General_CP1_CI_AS"
+
   defstruct snapshot_path: nil,
             migration_path: nil,
             name: nil,
@@ -550,10 +555,16 @@ defmodule AshMssql.MigrationGenerator do
             Enum.max(sizes)
         end
 
+      collation =
+        attributes
+        |> Enum.map(&Map.get(&1, :collation))
+        |> Enum.find(& &1)
+
       %{
         source: source,
         type: merge_types(Enum.map(attributes, & &1.type), source, table),
         size: size,
+        collation: collation,
         default: merge_defaults(Enum.map(attributes, & &1.default)),
         allow_nil?: Enum.any?(attributes, & &1.allow_nil?) || Enum.count(attributes) < count,
         generated?: Enum.any?(attributes, & &1.generated?),
@@ -2174,24 +2185,32 @@ defmodule AshMssql.MigrationGenerator do
           type
         end
 
-      {type, size} =
+      {type, size, collation} =
         case type do
           {:varchar, size} ->
-            {:varchar, size}
+            {:varchar, size, nil}
 
           {:binary, size} ->
-            {:binary, size}
+            {:binary, size, nil}
+
+          # Internal marker from migration_type/2 for ci_string storage: a
+          # plain sized string column plus an explicit deterministic
+          # case-insensitive collation (rendered via ecto's collation:
+          # column option).
+          {:ci_string, size} ->
+            {:string, size, @ci_string_collation}
 
           {other, size} when is_atom(other) and is_integer(size) ->
-            {other, size}
+            {other, size, nil}
 
           other ->
-            {other, nil}
+            {other, nil, nil}
         end
 
       attribute
       |> Map.put(:default, default)
       |> Map.put(:size, size)
+      |> Map.put(:collation, collation)
       |> Map.put(:type, type)
       |> Map.put(:source, attribute.source || attribute.name)
       |> Map.drop([:name, :constraints])
@@ -2280,8 +2299,14 @@ defmodule AshMssql.MigrationGenerator do
   # otherwise silently become case-sensitive — semantics the query layer's
   # COLLATE casts cannot fix. CI_AS (not CI_AI) matches postgres citext, which
   # is accent-sensitive, and the query layer's LOWER()-based ci comparisons.
-  defp migration_type(Ash.Type.CiString, _),
-    do: :"NVARCHAR(255) COLLATE SQL_Latin1_General_CP1_CI_AS"
+  #
+  # `{:ci_string, size}` is an internal marker resolved by `attributes/2`
+  # into a `:string` column of that size plus ecto's `collation:` column
+  # option (@ci_string_collation), so it composes with size/null/default
+  # instead of smuggling SQL text through the type atom. The size honors
+  # the attribute's max_length constraint (NVARCHAR(255) otherwise).
+  defp migration_type(Ash.Type.CiString, constraints),
+    do: {:ci_string, constraints[:max_length] || 255}
 
   defp migration_type(Ash.Type.UUID, _), do: :uuid
   defp migration_type(Ash.Type.Integer, _), do: :bigint
@@ -2296,17 +2321,17 @@ defmodule AshMssql.MigrationGenerator do
     if Code.ensure_loaded?(type) and function_exported?(type, :mssql_migration_type, 1) do
       type.mssql_migration_type(constraints)
     else
-      migration_type_from_storage_type(Ash.Type.storage_type(type, constraints))
+      migration_type_from_storage_type(Ash.Type.storage_type(type, constraints), constraints)
     end
   end
 
-  defp migration_type_from_storage_type(:string), do: :string
+  defp migration_type_from_storage_type(:string, _constraints), do: :string
 
   # See migration_type(Ash.Type.CiString, _) above.
-  defp migration_type_from_storage_type(:ci_string),
-    do: :"NVARCHAR(255) COLLATE SQL_Latin1_General_CP1_CI_AS"
+  defp migration_type_from_storage_type(:ci_string, constraints),
+    do: {:ci_string, constraints[:max_length] || 255}
 
-  defp migration_type_from_storage_type(storage_type), do: storage_type
+  defp migration_type_from_storage_type(storage_type, _constraints), do: storage_type
 
   defp foreign_key?(relationship) do
     Ash.DataLayer.data_layer(relationship.source) == AshMssql.DataLayer &&
@@ -2542,6 +2567,9 @@ defmodule AshMssql.MigrationGenerator do
     attribute
     |> Map.put(:type, type)
     |> Map.put(:size, size)
+    # Snapshots written before collation support lack the key; default it so
+    # attribute equality doesn't flag every column as changed.
+    |> Map.put_new(:collation, nil)
     |> Map.put_new(:default, "nil")
     |> Map.update!(:default, &(&1 || "nil"))
     |> Map.update!(:references, fn
