@@ -594,50 +594,98 @@ defmodule AshMssql.FilterTest do
   end
 
   describe "like" do
-    test "like builds and matches" do
+    test "like matches case-sensitively regardless of column collation (postgres parity)" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
       |> Ash.create!()
 
-      results =
-        Post
-        |> Ash.Query.filter(like(title, "%aTc%"))
-        |> Ash.read!()
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(like(title, "%aTc%"))
+               |> Ash.read!()
 
-      assert [%Post{title: "MaTcH"}] = results
-
-      results =
-        Post
-        |> Ash.Query.filter(like(title, "%atc%"))
-        |> Ash.read!()
-
-      # On MSSQL, LIKE case-sensitivity is governed by the column/database
-      # collation. The default collation (SQL_Latin1_General_CP1_CI_AS) is
-      # case-insensitive, so a lowercase pattern still matches "MaTcH". (On
-      # Postgres/MySQL this would return [] because LIKE is case-sensitive.)
-      assert [%Post{title: "MaTcH"}] = results
+      assert [] =
+               Post
+               |> Ash.Query.filter(like(title, "%atc%"))
+               |> Ash.read!()
     end
   end
 
   describe "ilike" do
-    test "ilike builds and matches" do
+    test "ilike matches case-insensitively" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
       |> Ash.create!()
 
-      results =
-        Post
-        |> Ash.Query.filter(ilike(title, "%aTc%"))
-        |> Ash.read!()
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(ilike(title, "%aTc%"))
+               |> Ash.read!()
 
-      assert [%Post{title: "MaTcH"}] = results
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(ilike(title, "%atc%"))
+               |> Ash.read!()
+    end
+  end
 
-      results =
-        Post
-        |> Ash.Query.filter(ilike(title, "%atc%"))
-        |> Ash.read!()
+  describe "like/ilike as filter input predicates" do
+    test "like and ilike are usable as filter input predicates (as AshGraphql submits them)" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
 
-      assert [%Post{title: "MaTcH"}] = results
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter_input(%{title: %{like: "%aTc%"}})
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter_input(%{title: %{like: "%atc%"}})
+               |> Ash.read!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter_input(%{title: %{ilike: "%atc%"}})
+               |> Ash.read!()
+    end
+
+    test "like/ilike work on ci_string attributes and match case-insensitively (citext parity)" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "match", category: "FoObAr"})
+      |> Ash.create!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter_input(%{category: %{like: "%oOb%"}})
+               |> Ash.read!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter_input(%{category: %{ilike: "%oob%"}})
+               |> Ash.read!()
+    end
+
+    test "like/ilike work on enum attributes" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "match", status_enum: :open})
+      |> Ash.create!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter_input(%{status_enum: %{like: "op%"}})
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter_input(%{status_enum: %{like: "OP%"}})
+               |> Ash.read!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter_input(%{status_enum: %{ilike: "OP%"}})
+               |> Ash.read!()
     end
   end
 
@@ -664,11 +712,48 @@ defmodule AshMssql.FilterTest do
     end
   end
 
+  describe "contains" do
+    test "contains on a string is case sensitive" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(contains(title, "aTc"))
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter(contains(title, "atc"))
+               |> Ash.read!()
+    end
+
+    test "contains with a ci_string is case insensitive" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(contains(title, ^Ash.CiString.new("atc")))
+               |> Ash.read!()
+    end
+
+    test "contains on a ci_string attribute is case insensitive" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "match", category: "FoObAr"})
+      |> Ash.create!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter(contains(category, "oob"))
+               |> Ash.read!()
+    end
+  end
+
   describe "string_starts_with/string_ends_with" do
-    # Case-sensitivity is governed by the column collation (see
-    # AshMssql.SqlImplementation), so these tests only assert positional
-    # behavior, not case behavior.
-    test "string_starts_with matches prefixes only" do
+    test "string_starts_with matches prefixes case sensitively" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
       |> Ash.create!()
@@ -680,11 +765,16 @@ defmodule AshMssql.FilterTest do
 
       assert [] =
                Post
+               |> Ash.Query.filter(string_starts_with(title, "mat"))
+               |> Ash.read!()
+
+      assert [] =
+               Post
                |> Ash.Query.filter(string_starts_with(title, "aTc"))
                |> Ash.read!()
     end
 
-    test "string_ends_with matches suffixes only" do
+    test "string_ends_with matches suffixes case sensitively" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
       |> Ash.create!()
@@ -692,6 +782,11 @@ defmodule AshMssql.FilterTest do
       assert [%Post{title: "MaTcH"}] =
                Post
                |> Ash.Query.filter(string_ends_with(title, "TcH"))
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter(string_ends_with(title, "tch"))
                |> Ash.read!()
 
       assert [] =
@@ -797,7 +892,7 @@ defmodule AshMssql.FilterTest do
                |> Ash.read!()
     end
 
-    test "string_position uses CHARINDEX with needle-first argument order" do
+    test "string_position uses CHARINDEX with needle-first argument order, case sensitively" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
       |> Ash.create!()
@@ -805,6 +900,11 @@ defmodule AshMssql.FilterTest do
       assert [%Post{title: "MaTcH"}] =
                Post
                |> Ash.Query.filter(string_position(title, "aTc") == 2)
+               |> Ash.read!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(string_position(title, "atc") == 0)
                |> Ash.read!()
 
       assert [] =

@@ -19,15 +19,19 @@ defmodule AshMssql.SqlImplementation do
   def strpos_function, do: "charindex"
 
   @impl true
-  # MSSQL has no distinct case-insensitive LIKE operator. Both `like` and
-  # `ilike` compile to native `LIKE`, deferring case-sensitivity to the
-  # column/database collation (MSSQL defaults to a *_CI_AS collation).
+  # MSSQL has no distinct case-insensitive LIKE operator, and ecto's Tds
+  # adapter renders `ilike` as a bare `LIKE` (collation-governed, not
+  # guaranteed case-insensitive), so we don't claim native ilike support.
+  # The `expr/6` clauses below intercept every function ash_sql would
+  # otherwise gate on `ilike?()` and implement postgres-parity case
+  # semantics explicitly: `like`/case-sensitive ops force a case-sensitive
+  # collation, `ilike`/ci_string ops lowercase both sides.
   def ilike?, do: false
 
   @impl true
   def expr(
         query,
-        %like{arguments: [arg1, arg2], embedded?: pred_embedded?},
+        %like{arguments: [arg1_source, arg2_source], embedded?: pred_embedded?},
         bindings,
         embedded?,
         acc,
@@ -35,16 +39,27 @@ defmodule AshMssql.SqlImplementation do
       )
       when like in [AshMssql.Functions.Like, AshMssql.Functions.ILike] do
     {arg1, acc} =
-      AshSql.Expr.dynamic_expr(query, arg1, bindings, pred_embedded? || embedded?, :string, acc)
+      AshSql.Expr.dynamic_expr(query, arg1_source, bindings, pred_embedded? || embedded?, :string, acc)
 
     {arg2, acc} =
-      AshSql.Expr.dynamic_expr(query, arg2, bindings, pred_embedded? || embedded?, :string, acc)
+      AshSql.Expr.dynamic_expr(query, arg2_source, bindings, pred_embedded? || embedded?, :string, acc)
 
-    # Both like and ilike map to native MSSQL `LIKE`. Case-sensitivity is
-    # governed by the operand collation, which on a default MSSQL install is
-    # case-insensitive (*_CI_AS). If you need a guaranteed case-insensitive
-    # match on a case-sensitive column, add `COLLATE <collation>_CI_AS` here.
-    inner_dyn = Ecto.Query.dynamic(like(^arg1, ^arg2))
+    # Postgres parity: `like` is case-sensitive regardless of the column or
+    # database collation (forced via a case-sensitive collation), `ilike` is
+    # case-insensitive (both sides lowercased). `like` on a ci_string operand
+    # matches case-insensitively, mirroring postgres citext.
+    inner_dyn =
+      if like == AshMssql.Functions.Like and not ci_string_expr?(arg1_source) do
+        Ecto.Query.dynamic(
+          fragment(
+            "? COLLATE Latin1_General_CS_AS LIKE ? COLLATE Latin1_General_CS_AS",
+            ^arg1,
+            ^arg2
+          )
+        )
+      else
+        Ecto.Query.dynamic(like(fragment("LOWER(?)", ^arg1), fragment("LOWER(?)", ^arg2)))
+      end
 
     if type != Ash.Type.Boolean do
       {:ok, inner_dyn, acc}
@@ -77,6 +92,11 @@ defmodule AshMssql.SqlImplementation do
     {left_expr, acc} =
       AshSql.Expr.dynamic_expr(query, left, bindings, pred_embedded? || embedded?, :string, acc)
 
+    # Postgres parity: these match case-sensitively regardless of the column
+    # or database collation, except that a ci_string on either side matches
+    # case-insensitively, mirroring postgres citext.
+    ci? = match?(%Ash.CiString{}, right) or ci_string_expr?(left)
+
     {inner_dyn, acc} =
       case right do
         string_or_ci when is_binary(string_or_ci) or is_struct(string_or_ci, Ash.CiString) ->
@@ -89,7 +109,20 @@ defmodule AshMssql.SqlImplementation do
             end
 
           pattern = like_pattern(mod, string)
-          {Ecto.Query.dynamic(like(^left_expr, ^pattern)), acc}
+
+          if ci? do
+            {Ecto.Query.dynamic(
+               like(fragment("LOWER(?)", ^left_expr), fragment("LOWER(?)", ^pattern))
+             ), acc}
+          else
+            {Ecto.Query.dynamic(
+               fragment(
+                 "? COLLATE Latin1_General_CS_AS LIKE ? COLLATE Latin1_General_CS_AS",
+                 ^left_expr,
+                 ^pattern
+               )
+             ), acc}
+          end
 
         other ->
           {right_expr, acc} =
@@ -103,16 +136,51 @@ defmodule AshMssql.SqlImplementation do
             )
 
           dyn =
-            case mod do
-              Ash.Query.Function.Contains ->
-                Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) > 0)", ^right_expr, ^left_expr))
-
-              Ash.Query.Function.StringStartsWith ->
-                Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) = 1)", ^right_expr, ^left_expr))
-
-              Ash.Query.Function.StringEndsWith ->
+            case {mod, ci?} do
+              {Ash.Query.Function.Contains, false} ->
                 Ecto.Query.dynamic(
-                  fragment("(CHARINDEX(REVERSE((?)), REVERSE((?))) = 1)", ^right_expr, ^left_expr)
+                  fragment(
+                    "CHARINDEX(? COLLATE Latin1_General_CS_AS, ? COLLATE Latin1_General_CS_AS) > 0",
+                    ^right_expr,
+                    ^left_expr
+                  )
+                )
+
+              {Ash.Query.Function.Contains, true} ->
+                Ecto.Query.dynamic(
+                  fragment("CHARINDEX(LOWER(?), LOWER(?)) > 0", ^right_expr, ^left_expr)
+                )
+
+              {Ash.Query.Function.StringStartsWith, false} ->
+                Ecto.Query.dynamic(
+                  fragment(
+                    "CHARINDEX(? COLLATE Latin1_General_CS_AS, ? COLLATE Latin1_General_CS_AS) = 1",
+                    ^right_expr,
+                    ^left_expr
+                  )
+                )
+
+              {Ash.Query.Function.StringStartsWith, true} ->
+                Ecto.Query.dynamic(
+                  fragment("CHARINDEX(LOWER(?), LOWER(?)) = 1", ^right_expr, ^left_expr)
+                )
+
+              {Ash.Query.Function.StringEndsWith, false} ->
+                Ecto.Query.dynamic(
+                  fragment(
+                    "CHARINDEX(REVERSE(? COLLATE Latin1_General_CS_AS), REVERSE(? COLLATE Latin1_General_CS_AS)) = 1",
+                    ^right_expr,
+                    ^left_expr
+                  )
+                )
+
+              {Ash.Query.Function.StringEndsWith, true} ->
+                Ecto.Query.dynamic(
+                  fragment(
+                    "CHARINDEX(REVERSE(LOWER(?)), REVERSE(LOWER(?))) = 1",
+                    ^right_expr,
+                    ^left_expr
+                  )
                 )
             end
 
@@ -127,7 +195,7 @@ defmodule AshMssql.SqlImplementation do
   end
 
   # ash_sql's default emits `strpos((haystack), (needle))`; CHARINDEX takes
-  # (needle, haystack).
+  # (needle, haystack). Forced case-sensitive to match postgres strpos.
   def expr(
         query,
         %Ash.Query.Function.StringPosition{arguments: [left, right], embedded?: pred_embedded?},
@@ -142,7 +210,14 @@ defmodule AshMssql.SqlImplementation do
     {right_expr, acc} =
       AshSql.Expr.dynamic_expr(query, right, bindings, pred_embedded? || embedded?, :string, acc)
 
-    {:ok, Ecto.Query.dynamic(fragment("CHARINDEX((?), (?))", ^right_expr, ^left_expr)), acc}
+    {:ok,
+     Ecto.Query.dynamic(
+       fragment(
+         "CHARINDEX(? COLLATE Latin1_General_CS_AS, ? COLLATE Latin1_General_CS_AS)",
+         ^right_expr,
+         ^left_expr
+       )
+     ), acc}
   end
 
   # ash_sql's default emits `length(normalize(...))`; neither function exists
@@ -407,6 +482,15 @@ defmodule AshMssql.SqlImplementation do
     :error
   end
 
+  defp ci_string_expr?(%Ash.Query.Ref{attribute: %{type: type} = attribute}) do
+    constraints = Map.get(attribute, :constraints) || []
+
+    Ash.Type.ash_type?(type) && Ash.Type.storage_type(type, constraints) == :ci_string
+  end
+
+  defp ci_string_expr?(%Ash.CiString{}), do: true
+  defp ci_string_expr?(_), do: false
+
   defp like_pattern(Ash.Query.Function.Contains, string), do: "%" <> escape_like(string) <> "%"
   defp like_pattern(Ash.Query.Function.StringStartsWith, string), do: escape_like(string) <> "%"
   defp like_pattern(Ash.Query.Function.StringEndsWith, string), do: "%" <> escape_like(string)
@@ -454,10 +538,11 @@ defmodule AshMssql.SqlImplementation do
       !Ash.Type.ash_type?(type) ->
         Ecto.Query.dynamic(type(^expr, ^type))
 
-      # ci_string: no explicit collation. Case-insensitive comparison is
-      # provided by the column/database collation on MSSQL (default *_CI_AS).
+      # ci_string: force a deterministic case-insensitive (accent-sensitive,
+      # matching postgres citext) collation so comparisons don't depend on the
+      # server's default collation.
       Ash.Type.storage_type(type, []) == :ci_string ->
-        expr
+        Ecto.Query.dynamic(fragment("(? COLLATE SQL_Latin1_General_CP1_CI_AS)", ^expr))
 
       true ->
         Ecto.Query.dynamic(type(^expr, ^Ash.Type.storage_type(type, [])))
@@ -469,9 +554,10 @@ defmodule AshMssql.SqlImplementation do
 
     case type do
       {:parameterized, {inner_type, constraints}} ->
-        # ci_string relies on column/database collation on MSSQL; no COLLATE.
+        # ci_string: force a deterministic case-insensitive collation (see
+        # the atom-type clause above).
         if inner_type.type(constraints) == :ci_string do
-          expr
+          Ecto.Query.dynamic(fragment("(? COLLATE SQL_Latin1_General_CP1_CI_AS)", ^expr))
         else
           Ecto.Query.dynamic(type(^expr, ^type))
         end
