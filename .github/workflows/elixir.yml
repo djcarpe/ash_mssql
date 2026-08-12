@@ -7,22 +7,32 @@ on:
   pull_request:
     branches: [main]
 jobs:
-  # Full run: lint/docs/dialyzer plus tests against the oldest supported
-  # SQL Server.
-  ash-ci:
+  # Version-independent jobs (lint/docs/dialyzer/compiles) run exactly once.
+  lint:
+    uses: ./.github/workflows/ash-ci.yml
+    with:
+      tests: false
+  # Only the test job is matrixed over SQL Server versions.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        mssql-version: ["2022-latest", "2025-latest"]
     uses: ./.github/workflows/ash-ci.yml
     with:
       mssql: true
-      mssql-version: "2022-latest"
-    secrets:
-      HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-  # Tests only against newer SQL Server versions — the lint jobs don't
-  # depend on the server version, so they run once above.
-  ash-ci-mssql-2025:
-    uses: ./.github/workflows/ash-ci.yml
-    with:
-      mssql: true
-      mssql-version: "2025-latest"
+      mssql-version: ${{ matrix.mssql-version }}
       lint: false
-    secrets:
-      HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+  release:
+    name: Release
+    needs:
+      - lint
+      - test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/mix-hex-publish@main
+        with:
+          mix-env: dev
+          hex-api-key: ${{ secrets.HEX_API_KEY }}
