@@ -281,10 +281,13 @@ defmodule AshMssql.MigrationGenerator.Operation do
           ", null: #{attribute.allow_nil?}"
         end
 
-      # size parameterizes varchar/nvarchar/char etc. Without it, a size-only
-      # change generates a `modify` that silently fails to set the new size.
+      # size parameterizes varchar/nvarchar/char etc. `modify` re-emits the
+      # full column definition, so the size must be included whenever the
+      # attribute has one — not just when it changed: a bare VARCHAR/NVARCHAR
+      # in ALTER COLUMN means length 1 to SQL Server, so dropping the size
+      # from a null/default-only modify would silently truncate the column.
       size =
-        if attribute[:size] != old_attribute[:size] && attribute[:size] do
+        if attribute[:size] do
           ", size: #{attribute[:size]}"
         end
 
