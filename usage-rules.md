@@ -45,20 +45,30 @@ end
 These are the places SQL Server diverges from PostgreSQL/MySQL. Keep them in mind
 when writing filters, identities, and expressions.
 
-- **`like` / `ilike`**: SQL Server has no distinct case-insensitive `LIKE`
-  operator, so both `like` and `ilike` compile to a native `LIKE`.
-  Case-sensitivity is governed by the column/database collation. A default SQL
-  Server install uses a case-insensitive collation (`*_CI_AS`), so `LIKE` — and
-  therefore `ilike` — is case-insensitive; on Postgres/MySQL a plain `like` would
-  be case-sensitive. Do not rely on `ilike` forcing case-insensitivity on a
-  case-sensitive (`*_CS_AS`) column.
-- **`ci_string`**: maps to `NVARCHAR` with no explicit collation; case-insensitive
-  comparison comes from the column/database collation.
+- **`like` / `ilike`**: postgres-parity semantics regardless of the column or
+  database collation: `like` is case-sensitive (forced via
+  `COLLATE Latin1_General_CS_AS`), `ilike` is case-insensitive (both sides
+  lowercased). `like` on a `ci_string` attribute matches case-insensitively,
+  mirroring postgres citext.
+- **`ci_string`**: maps to `NVARCHAR(255) COLLATE SQL_Latin1_General_CP1_CI_AS`,
+  a deterministic case-insensitive (accent-sensitive, like postgres citext)
+  collation, so equality, uniqueness, and sorting are case-insensitive even on
+  servers/databases created with a case-sensitive default collation.
+- **Plain `string` equality**: `==`, `ORDER BY`, and unique indexes on regular
+  `string` columns follow the column/database collation (case-insensitive on a
+  default SQL Server install; case-sensitive on Postgres). If you need
+  postgres-style case-sensitive equality for a column, set a collated type
+  per-attribute via `migration_types(field: :"NVARCHAR(255) COLLATE Latin1_General_CS_AS")`.
 - **Unique constraints and NULLs**: unique indexes are generated as *filtered*
   indexes (`WHERE <cols> IS NOT NULL`) so multiple rows with NULL key values are
   allowed, matching the Postgres/MySQL "NULLs are distinct" behaviour. Without
   this, SQL Server treats NULLs as equal and permits only one NULL row.
-- **`contains/2`**: compiles to `CHARINDEX(needle, haystack) > 0`.
+- **`contains/2` / `string_starts_with/2` / `string_ends_with/2` /
+  `string_position/2`**: case-sensitive (postgres parity), forced via a
+  case-sensitive collation; a `ci_string` operand or `Ash.CiString` literal
+  matches case-insensitively. Literal needles compile to LIKE patterns with
+  `[`, `%`, `_` escaped via bracket classes; dynamic needles use
+  `CHARINDEX(needle, haystack)`.
 - **`&&` / `||`**: follow Elixir truthiness (`nil`/`false` are falsy; `0` and `""`
   are truthy). For booleans a `0`/false value is also falsy.
 - **JSON**: scalar path access (`get_path`) uses `JSON_VALUE`. Extracting whole

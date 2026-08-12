@@ -2271,9 +2271,15 @@ defmodule AshMssql.MigrationGenerator do
   defp migration_type({:array, type}, constraints),
     do: {:array, migration_type(type, constraints)}
 
-  # MSSQL: ci_string is a plain (N)VARCHAR; case-insensitivity comes from the
-  # column/database collation (default *_CI_AS), so no explicit COLLATE clause.
-  defp migration_type(Ash.Type.CiString, _), do: :string
+  # ci_string columns carry an explicit deterministic case-insensitive
+  # collation rather than inheriting the database default: on a server or
+  # database created with a case-sensitive collation, uniqueness (identities/
+  # unique indexes), ORDER BY, and GROUP BY on ci_string columns would
+  # otherwise silently become case-sensitive — semantics the query layer's
+  # COLLATE casts cannot fix. CI_AS (not CI_AI) matches postgres citext, which
+  # is accent-sensitive, and the query layer's LOWER()-based ci comparisons.
+  defp migration_type(Ash.Type.CiString, _),
+    do: :"NVARCHAR(255) COLLATE SQL_Latin1_General_CP1_CI_AS"
   defp migration_type(Ash.Type.UUID, _), do: :uuid
   defp migration_type(Ash.Type.Integer, _), do: :bigint
 
@@ -2293,7 +2299,9 @@ defmodule AshMssql.MigrationGenerator do
 
   defp migration_type_from_storage_type(:string), do: :string
 
-  defp migration_type_from_storage_type(:ci_string), do: :string
+  # See migration_type(Ash.Type.CiString, _) above.
+  defp migration_type_from_storage_type(:ci_string),
+    do: :"NVARCHAR(255) COLLATE SQL_Latin1_General_CP1_CI_AS"
 
   defp migration_type_from_storage_type(storage_type), do: storage_type
 

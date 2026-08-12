@@ -48,9 +48,12 @@ create table(:managers, primary_key: false) do
 end
 ```
 
-## Like
+## Like and ILike
 
-These wrap the mssql builtin like operator
+These match the postgres semantics regardless of the column or database
+collation: `like` is case-sensitive (forced via a case-sensitive collation),
+`ilike` is case-insensitive (both sides lowercased). On a `ci_string`
+attribute, `like` matches case-insensitively, mirroring postgres citext.
 
 Please be aware, these match _patterns_ not raw text. Use `contains/1` if you want to match text without supporting patterns, i.e `%` and `_` have semantic meaning!
 
@@ -58,4 +61,5 @@ For example:
 
 ```elixir
 Ash.Query.filter(User, like(name, "%obo%")) # name contains obo anywhere in the string, case sensitively
+Ash.Query.filter(User, ilike(name, "%obo%")) # name contains obo anywhere in the string, case insensitively
 ```

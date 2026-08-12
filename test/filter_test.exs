@@ -667,6 +667,27 @@ defmodule AshMssql.FilterTest do
                |> Ash.read!()
     end
 
+    test "like/ilike work on string-based NewType attributes and stay case-sensitive" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "match", email: "USER@example.com"})
+      |> Ash.create!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter_input(%{email: %{like: "USER@%"}})
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter_input(%{email: %{like: "user@%"}})
+               |> Ash.read!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter_input(%{email: %{ilike: "user@%"}})
+               |> Ash.read!()
+    end
+
     test "like/ilike work on enum attributes" do
       Post
       |> Ash.Changeset.for_create(:create, %{title: "match", status_enum: :open})
