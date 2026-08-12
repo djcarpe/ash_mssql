@@ -53,17 +53,27 @@ defmodule AshMssql.SqlImplementation do
     end
   end
 
-  # `contains/2` on a non-literal pattern falls through to `ash_sql`'s generic
-  # strpos path, which emits `charindex((haystack), (needle))` — reversed for
-  # MSSQL. Override it to emit the correct `CHARINDEX(needle, haystack)` order.
+  # `contains/2`, `string_starts_with/2`, and `string_ends_with/2` fall through
+  # to `ash_sql`'s postgres-shaped defaults: backslash-escaped LIKE patterns for
+  # literals (SQL Server LIKE has no default escape character and treats `[` as
+  # a wildcard class, so `[tag]%` matches "t…"/"a…"/"g…") and
+  # `strpos((haystack), (needle))` for dynamic needles (CHARINDEX takes its
+  # arguments in the opposite order; string_ends_with also uses `||`
+  # concatenation, which is invalid T-SQL). Override them with
+  # `CHARINDEX(needle, haystack)` in the correct order.
   def expr(
         query,
-        %Ash.Query.Function.Contains{arguments: [left, right], embedded?: pred_embedded?},
+        %mod{arguments: [left, right], embedded?: pred_embedded?},
         bindings,
         embedded?,
         acc,
         type
-      ) do
+      )
+      when mod in [
+             Ash.Query.Function.Contains,
+             Ash.Query.Function.StringStartsWith,
+             Ash.Query.Function.StringEndsWith
+           ] do
     {left_expr, acc} =
       AshSql.Expr.dynamic_expr(query, left, bindings, pred_embedded? || embedded?, :string, acc)
 
@@ -71,13 +81,75 @@ defmodule AshMssql.SqlImplementation do
       AshSql.Expr.dynamic_expr(query, right, bindings, pred_embedded? || embedded?, :string, acc)
 
     inner_dyn =
-      Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) > 0)", ^right_expr, ^left_expr))
+      case mod do
+        Ash.Query.Function.Contains ->
+          Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) > 0)", ^right_expr, ^left_expr))
+
+        Ash.Query.Function.StringStartsWith ->
+          Ecto.Query.dynamic(fragment("(CHARINDEX((?), (?)) = 1)", ^right_expr, ^left_expr))
+
+        Ash.Query.Function.StringEndsWith ->
+          Ecto.Query.dynamic(
+            fragment("(CHARINDEX(REVERSE((?)), REVERSE((?))) = 1)", ^right_expr, ^left_expr)
+          )
+      end
 
     if type != Ash.Type.Boolean do
       {:ok, inner_dyn, acc}
     else
       {:ok, Ecto.Query.dynamic(type(^inner_dyn, ^type)), acc}
     end
+  end
+
+  # ash_sql's default emits `strpos((haystack), (needle))`; CHARINDEX takes
+  # (needle, haystack).
+  def expr(
+        query,
+        %Ash.Query.Function.StringPosition{arguments: [left, right], embedded?: pred_embedded?},
+        bindings,
+        embedded?,
+        acc,
+        _type
+      ) do
+    {left_expr, acc} =
+      AshSql.Expr.dynamic_expr(query, left, bindings, pred_embedded? || embedded?, :string, acc)
+
+    {right_expr, acc} =
+      AshSql.Expr.dynamic_expr(query, right, bindings, pred_embedded? || embedded?, :string, acc)
+
+    {:ok, Ecto.Query.dynamic(fragment("CHARINDEX((?), (?))", ^right_expr, ^left_expr)), acc}
+  end
+
+  # ash_sql's default emits `length(normalize(...))`; neither function exists
+  # in T-SQL.
+  def expr(
+        query,
+        %Ash.Query.Function.StringLength{arguments: [value], embedded?: pred_embedded?},
+        bindings,
+        embedded?,
+        acc,
+        _type
+      ) do
+    {value_expr, acc} =
+      AshSql.Expr.dynamic_expr(query, value, bindings, pred_embedded? || embedded?, :string, acc)
+
+    {:ok, Ecto.Query.dynamic(fragment("LEN(?)", ^value_expr)), acc}
+  end
+
+  # ash_sql's default emits REGEXP_REPLACE, which only exists on SQL Server
+  # 2025+.
+  def expr(
+        query,
+        %Ash.Query.Function.StringTrim{arguments: [value], embedded?: pred_embedded?},
+        bindings,
+        embedded?,
+        acc,
+        _type
+      ) do
+    {value_expr, acc} =
+      AshSql.Expr.dynamic_expr(query, value, bindings, pred_embedded? || embedded?, :string, acc)
+
+    {:ok, Ecto.Query.dynamic(fragment("LTRIM(RTRIM(?))", ^value_expr)), acc}
   end
 
   def expr(

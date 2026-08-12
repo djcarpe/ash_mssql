@@ -664,6 +664,110 @@ defmodule AshMssql.FilterTest do
     end
   end
 
+  describe "string_starts_with/string_ends_with" do
+    # Case-sensitivity is governed by the column collation (see
+    # AshMssql.SqlImplementation), so these tests only assert positional
+    # behavior, not case behavior.
+    test "string_starts_with matches prefixes only" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(string_starts_with(title, "MaT"))
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter(string_starts_with(title, "aTc"))
+               |> Ash.read!()
+    end
+
+    test "string_ends_with matches suffixes only" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(string_ends_with(title, "TcH"))
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter(string_ends_with(title, "MaT"))
+               |> Ash.read!()
+    end
+
+    test "string_starts_with/string_ends_with work with dynamic (non-literal) needles" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
+
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "other"})
+      |> Ash.create!()
+
+      # `string_trim(title)` forces the non-literal CHARINDEX path; every title
+      # starts and ends with its own trimmed self, so both must match all rows.
+      assert Post
+             |> Ash.Query.filter(string_starts_with(title, string_trim(title)))
+             |> Ash.read!()
+             |> length() == 2
+
+      assert Post
+             |> Ash.Query.filter(string_ends_with(title, string_trim(title)))
+             |> Ash.read!()
+             |> length() == 2
+    end
+  end
+
+  describe "string functions" do
+    test "string_length uses LEN" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(string_length(title) == 5)
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter(string_length(title) == 4)
+               |> Ash.read!()
+    end
+
+    test "string_trim uses LTRIM/RTRIM" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "  padded  "})
+      |> Ash.create!()
+
+      assert [%Post{}] =
+               Post
+               |> Ash.Query.filter(string_trim(title) == "padded")
+               |> Ash.read!()
+    end
+
+    test "string_position uses CHARINDEX with needle-first argument order" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "MaTcH"})
+      |> Ash.create!()
+
+      assert [%Post{title: "MaTcH"}] =
+               Post
+               |> Ash.Query.filter(string_position(title, "aTc") == 2)
+               |> Ash.read!()
+
+      assert [] =
+               Post
+               |> Ash.Query.filter(string_position(title, "zzz") == 2)
+               |> Ash.read!()
+    end
+  end
+
   describe "filtering on relationships that themselves have filters" do
     test "it doesn't raise an error" do
       Comment
