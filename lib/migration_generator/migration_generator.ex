@@ -352,10 +352,12 @@ defmodule AshMssql.MigrationGenerator do
     |> Enum.reject(&is_nil/1)
   end
 
+  # `visited`/`in_progress` are plain maps used as sets (MapSet's opaque type
+  # trips dialyzer across the recursion here).
   defp topological_sort(tables, deps) do
     {ordered, _visited} =
-      Enum.reduce(tables, {[], MapSet.new()}, fn table, {ordered, visited} ->
-        topo_visit(table, deps, ordered, visited, MapSet.new())
+      Enum.reduce(tables, {[], %{}}, fn table, {ordered, visited} ->
+        topo_visit(table, deps, ordered, visited, %{})
       end)
 
     # `ordered` is in referenced-first order: a referenced table always precedes
@@ -365,16 +367,16 @@ defmodule AshMssql.MigrationGenerator do
 
   defp topo_visit(table, deps, ordered, visited, in_progress) do
     cond do
-      MapSet.member?(visited, table) ->
+      Map.has_key?(visited, table) ->
         {ordered, visited}
 
       # Cycle: a referenced table transitively references us. Inline FKs cannot
       # express this; stop descending and let best-effort order stand.
-      MapSet.member?(in_progress, table) ->
+      Map.has_key?(in_progress, table) ->
         {ordered, visited}
 
       true ->
-        in_progress = MapSet.put(in_progress, table)
+        in_progress = Map.put(in_progress, table, true)
 
         {ordered, visited} =
           deps
@@ -387,7 +389,7 @@ defmodule AshMssql.MigrationGenerator do
             end
           end)
 
-        {[table | ordered], MapSet.put(visited, table)}
+        {[table | ordered], Map.put(visited, table, true)}
     end
   end
 
@@ -2280,6 +2282,7 @@ defmodule AshMssql.MigrationGenerator do
   # is accent-sensitive, and the query layer's LOWER()-based ci comparisons.
   defp migration_type(Ash.Type.CiString, _),
     do: :"NVARCHAR(255) COLLATE SQL_Latin1_General_CP1_CI_AS"
+
   defp migration_type(Ash.Type.UUID, _), do: :uuid
   defp migration_type(Ash.Type.Integer, _), do: :bigint
 

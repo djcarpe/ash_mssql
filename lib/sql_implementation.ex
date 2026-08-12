@@ -39,10 +39,24 @@ defmodule AshMssql.SqlImplementation do
       )
       when like in [AshMssql.Functions.Like, AshMssql.Functions.ILike] do
     {arg1, acc} =
-      AshSql.Expr.dynamic_expr(query, arg1_source, bindings, pred_embedded? || embedded?, :string, acc)
+      AshSql.Expr.dynamic_expr(
+        query,
+        arg1_source,
+        bindings,
+        pred_embedded? || embedded?,
+        :string,
+        acc
+      )
 
     {arg2, acc} =
-      AshSql.Expr.dynamic_expr(query, arg2_source, bindings, pred_embedded? || embedded?, :string, acc)
+      AshSql.Expr.dynamic_expr(
+        query,
+        arg2_source,
+        bindings,
+        pred_embedded? || embedded?,
+        :string,
+        acc
+      )
 
     # Postgres parity: `like` is case-sensitive regardless of the column or
     # database collation (forced via a case-sensitive collation), `ilike` is

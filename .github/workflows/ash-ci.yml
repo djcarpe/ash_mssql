@@ -40,7 +40,7 @@ on:
         default: false
       mssql-version:
         type: string
-        default: "8.0"
+        default: "2022-latest"
       hex-api-key:
         type: string
       sat-solver:
@@ -48,7 +48,7 @@ on:
         default: "Picosat"
 env:
   PG_VERSION: ${{inputs.postgres-version}}
-  MYSQL_VERSION: ${{inputs.mssql-version}}
+  MSSQL_VERSION: ${{inputs.mssql-version}}
 jobs:
   deps:
     name: mix deps.get
@@ -187,12 +187,19 @@ jobs:
         ports:
           - 5432:5432
       mssql:
-        image: mssql:${{inputs.mssql-version}}
+        image: mcr.microsoft.com/mssql/server:${{inputs.mssql-version}}
         env:
-          MYSQL_ROOT_PASSWORD: root
-        options: --health-cmd="mssqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: YourStrong@Passw0rd
+          MSSQL_PID: Developer
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P YourStrong@Passw0rd -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=20s
         ports:
-          - 3306:3306
+          - 1433:1433
     steps:
       - uses: actions/checkout@v3
       - uses: team-alembic/staple-actions/actions/mix-task@main
@@ -255,11 +262,6 @@ jobs:
           mix-env: test
           task: ecto.create
         if: ${{inputs.mssql && inputs.ecto_mssql}}
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: ash_mssql.migrate
-        if: ${{inputs.mssql && inputs.ash_mssql}}
       - uses: team-alembic/staple-actions/actions/mix-task@main
         with:
           mix-env: test

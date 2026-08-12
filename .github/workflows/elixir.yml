@@ -11,10 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mssql-version: ["8.0"]
-    uses: ash-project/ash_mssql/.github/workflows/ash-ci.yml@main
+        mssql-version: ["2022-latest", "2025-latest"]
+    uses: ./.github/workflows/ash-ci.yml
     with:
       mssql: true
       mssql-version: ${{matrix.mssql-version}}
     secrets:
-      hex_api_key: ${{ secrets.HEX_API_KEY }}
+      HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
