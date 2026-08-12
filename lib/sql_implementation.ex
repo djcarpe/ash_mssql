@@ -212,7 +212,10 @@ defmodule AshMssql.SqlImplementation do
   end
 
   # ash_sql's default emits `strpos((haystack), (needle))`; CHARINDEX takes
-  # (needle, haystack). Forced case-sensitive to match postgres strpos.
+  # (needle, haystack). Forced case-sensitive to match postgres strpos,
+  # except that a ci_string on either side matches case-insensitively,
+  # mirroring postgres citext (and the contains/starts_with/ends_with
+  # clauses above).
   def expr(
         query,
         %Ash.Query.Function.StringPosition{arguments: [left, right], embedded?: pred_embedded?},
@@ -221,20 +224,28 @@ defmodule AshMssql.SqlImplementation do
         acc,
         _type
       ) do
+    ci? = ci_string_expr?(left) or ci_string_expr?(right)
+
     {left_expr, acc} =
       AshSql.Expr.dynamic_expr(query, left, bindings, pred_embedded? || embedded?, :string, acc)
 
     {right_expr, acc} =
       AshSql.Expr.dynamic_expr(query, right, bindings, pred_embedded? || embedded?, :string, acc)
 
-    {:ok,
-     Ecto.Query.dynamic(
-       fragment(
-         "CHARINDEX(? COLLATE Latin1_General_CS_AS, ? COLLATE Latin1_General_CS_AS)",
-         ^right_expr,
-         ^left_expr
-       )
-     ), acc}
+    inner_dyn =
+      if ci? do
+        Ecto.Query.dynamic(fragment("CHARINDEX(LOWER(?), LOWER(?))", ^right_expr, ^left_expr))
+      else
+        Ecto.Query.dynamic(
+          fragment(
+            "CHARINDEX(? COLLATE Latin1_General_CS_AS, ? COLLATE Latin1_General_CS_AS)",
+            ^right_expr,
+            ^left_expr
+          )
+        )
+      end
+
+    {:ok, inner_dyn, acc}
   end
 
   # ash_sql's default emits `length(normalize(...))`; neither function exists
@@ -566,9 +577,14 @@ defmodule AshMssql.SqlImplementation do
 
       # ci_string: force a deterministic case-insensitive (accent-sensitive,
       # matching postgres citext) collation so comparisons don't depend on the
-      # server's default collation.
+      # server's default collation. CAST first: COLLATE is only valid on
+      # character expressions, and ash types some functions (e.g.
+      # string_position) as ci_string, so a non-string operand (an integer
+      # being compared against one) can be cast through here.
       Ash.Type.storage_type(type, []) == :ci_string ->
-        Ecto.Query.dynamic(fragment("(? COLLATE SQL_Latin1_General_CP1_CI_AS)", ^expr))
+        Ecto.Query.dynamic(
+          fragment("(CAST(? AS nvarchar(max)) COLLATE SQL_Latin1_General_CP1_CI_AS)", ^expr)
+        )
 
       true ->
         Ecto.Query.dynamic(type(^expr, ^Ash.Type.storage_type(type, [])))
@@ -581,9 +597,11 @@ defmodule AshMssql.SqlImplementation do
     case type do
       {:parameterized, {inner_type, constraints}} ->
         # ci_string: force a deterministic case-insensitive collation (see
-        # the atom-type clause above).
+        # the atom-type clause above for why the CAST is needed).
         if inner_type.type(constraints) == :ci_string do
-          Ecto.Query.dynamic(fragment("(? COLLATE SQL_Latin1_General_CP1_CI_AS)", ^expr))
+          Ecto.Query.dynamic(
+            fragment("(CAST(? AS nvarchar(max)) COLLATE SQL_Latin1_General_CP1_CI_AS)", ^expr)
+          )
         else
           Ecto.Query.dynamic(type(^expr, ^type))
         end

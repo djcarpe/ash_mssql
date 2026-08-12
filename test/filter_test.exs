@@ -944,6 +944,22 @@ defmodule AshMssql.FilterTest do
                |> Ash.Query.filter(string_position(title, "zzz") == 2)
                |> Ash.read!()
     end
+
+    test "string_position on a ci_string attribute matches case-insensitively (citext parity)" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "match", category: "FoObAr"})
+      |> Ash.create!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter(string_position(category, "OOB") == 2)
+               |> Ash.read!()
+
+      assert [%Post{title: "match"}] =
+               Post
+               |> Ash.Query.filter(string_position(title, ^Ash.CiString.new("ATC")) == 2)
+               |> Ash.read!()
+    end
   end
 
   describe "filtering on relationships that themselves have filters" do
