@@ -2163,8 +2163,10 @@ defmodule AshMssql.MigrationGenerator do
         AshMssql.DataLayer.Info.migration_types(resource)[attribute.name] ||
           migration_type(attribute.type, attribute.constraints)
 
+      Code.ensure_loaded!(repo)
+
       type =
-        if :erlang.function_exported(repo, :override_migration_type, 1) do
+        if function_exported?(repo, :override_migration_type, 1) do
           repo.override_migration_type(type)
         else
           type
@@ -2393,6 +2395,8 @@ defmodule AshMssql.MigrationGenerator do
       type
       |> unwrap_type()
       |> Ash.Type.get_type()
+
+    Code.ensure_loaded!(type)
 
     if function_exported?(type, :value_to_mssql_default, 3) do
       type.value_to_mssql_default(type, constraints, value)
