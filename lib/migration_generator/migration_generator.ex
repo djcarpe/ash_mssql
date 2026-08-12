@@ -2608,8 +2608,12 @@ defmodule AshMssql.MigrationGenerator do
     {:binary, size}
   end
 
+  # to_atom rather than to_existing_atom: a custom Ash.Type's storage_type
+  # (e.g. `{:nvarchar, 100}`) can name a type atom nothing has created yet
+  # when the old snapshot is read back. The set of names is bounded by the
+  # types appearing in snapshots, so atom creation is safe here.
   defp load_type([string, size]) when is_binary(string) and is_integer(size) do
-    {String.to_existing_atom(string), size}
+    {String.to_atom(string), size}
   end
 
   defp load_type(type) do
