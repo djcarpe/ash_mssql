@@ -771,6 +771,17 @@ defmodule AshMssql.FilterTest do
                |> Ash.Query.filter(contains(category, "oob"))
                |> Ash.read!()
     end
+
+    test "a ci_string attribute as the needle is case insensitive (citext parity)" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "xfoobarx", category: "FoObAr"})
+      |> Ash.create!()
+
+      assert [%Post{title: "xfoobarx"}] =
+               Post
+               |> Ash.Query.filter(contains(title, category))
+               |> Ash.read!()
+    end
   end
 
   describe "string_starts_with/string_ends_with" do

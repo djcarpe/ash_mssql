@@ -61,9 +61,10 @@ defmodule AshMssql.SqlImplementation do
     # Postgres parity: `like` is case-sensitive regardless of the column or
     # database collation (forced via a case-sensitive collation), `ilike` is
     # case-insensitive (both sides lowercased). `like` on a ci_string operand
-    # matches case-insensitively, mirroring postgres citext.
+    # (either side) matches case-insensitively, mirroring postgres citext.
     inner_dyn =
-      if like == AshMssql.Functions.Like and not ci_string_expr?(arg1_source) do
+      if like == AshMssql.Functions.Like and
+           not (ci_string_expr?(arg1_source) or ci_string_expr?(arg2_source)) do
         Ecto.Query.dynamic(
           fragment(
             "? COLLATE Latin1_General_CS_AS LIKE ? COLLATE Latin1_General_CS_AS",
@@ -108,8 +109,10 @@ defmodule AshMssql.SqlImplementation do
 
     # Postgres parity: these match case-sensitively regardless of the column
     # or database collation, except that a ci_string on either side matches
-    # case-insensitively, mirroring postgres citext.
-    ci? = match?(%Ash.CiString{}, right) or ci_string_expr?(left)
+    # case-insensitively, mirroring postgres citext. `ci_string_expr?/1`
+    # covers both `%Ash.CiString{}` literals and ci_string-typed refs, so a
+    # ci_string attribute used as the needle is detected too.
+    ci? = ci_string_expr?(left) or ci_string_expr?(right)
 
     {inner_dyn, acc} =
       case right do
@@ -498,12 +501,21 @@ defmodule AshMssql.SqlImplementation do
 
   defp ci_string_expr?(%Ash.Query.Ref{attribute: %{type: type} = attribute}) do
     constraints = Map.get(attribute, :constraints) || []
-
-    Ash.Type.ash_type?(type) && Ash.Type.storage_type(type, constraints) == :ci_string
+    ci_string_type?(type, constraints)
   end
 
   defp ci_string_expr?(%Ash.CiString{}), do: true
   defp ci_string_expr?(_), do: false
+
+  # Covers Ash types (atoms/NewTypes, via storage_type) and already-
+  # parameterized ecto types (as carried by e.g. aggregate refs).
+  defp ci_string_type?({:parameterized, {inner_type, constraints}}, _constraints) do
+    inner_type.type(constraints) == :ci_string
+  end
+
+  defp ci_string_type?(type, constraints) do
+    Ash.Type.ash_type?(type) && Ash.Type.storage_type(type, constraints) == :ci_string
+  end
 
   defp like_pattern(Ash.Query.Function.Contains, string), do: "%" <> escape_like(string) <> "%"
   defp like_pattern(Ash.Query.Function.StringStartsWith, string), do: escape_like(string) <> "%"

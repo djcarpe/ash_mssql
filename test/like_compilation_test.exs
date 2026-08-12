@@ -95,5 +95,15 @@ defmodule AshMssql.LikeCompilationTest do
       assert sql =~ ~r/LOWER\(/i
       refute sql =~ ~r/COLLATE Latin1_General_CS_AS/i
     end
+
+    test "a ci_string attribute as the needle also lowercases instead of collating" do
+      sql =
+        Post
+        |> Ash.Query.filter(contains(title, category))
+        |> to_sql()
+
+      assert sql =~ ~r/LOWER\(/i
+      refute sql =~ ~r/COLLATE Latin1_General_CS_AS/i
+    end
   end
 end
