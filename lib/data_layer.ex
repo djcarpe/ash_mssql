@@ -438,6 +438,8 @@ defmodule AshMssql.DataLayer do
 
   def can?(_, :timeout), do: true
   def can?(_, {:filter_expr, %Ash.Query.Function.StringJoin{}}), do: false
+  # SQL Server has no array type; STRING_SPLIT returns rows, not a value
+  def can?(_, {:filter_expr, %Ash.Query.Function.StringSplit{}}), do: false
   def can?(_, {:filter_expr, _}), do: true
   def can?(_, :nested_expressions), do: true
   def can?(_, {:query_aggregate, _}), do: true
