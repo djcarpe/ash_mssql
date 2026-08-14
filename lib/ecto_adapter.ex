@@ -21,6 +21,46 @@ defmodule AshMssql.EctoAdapter do
   version 7 UUIDs (so time-ordered v7 keys insert sequentially instead of
   at random index positions — see `AshMssql.UUID` for the trade-off).
 
+  ## Byte order at a glance
+
+  For a UUID with bytes `b0..b15`, as written in its string form
+  (`b0 b1 b2 b3 - b4 b5 - b6 b7 - b8 b9 - b10 b11 b12 b13 b14 b15`):
+
+      RFC 4122 raw — what Ash/Ecto uuid types dump and load:
+
+          b0  b1  b2  b3   b4  b5   b6  b7   b8  b9   b10 b11 b12 b13 b14 b15
+
+      stored uniqueidentifier, native layout (every version but 7) — the
+      first three groups little-endian, exactly how SQL Server lays out a
+      GUID whose string form equals the application uuid:
+
+          b3  b2  b1  b0   b5  b4   b7  b6   b8  b9   b10 b11 b12 b13 b14 b15
+
+      stored uniqueidentifier, rotated layout (version 7) — the timestamp
+      (`b0..b5`) moved into the bytes SQL Server compares first:
+
+          b15 b14 b13 b12  b11 b10  b9  b8   b6  b7   b0  b1  b2  b3  b4  b5
+
+  SQL Server renders stored bytes `s0..s15` as the string
+  `s3 s2 s1 s0 - s5 s4 - s7 s6 - s8 s9 - s10 s11 s12 s13 s14 s15`, and
+  compares two uniqueidentifiers group-wise in the *opposite* order of the
+  string: the last group is the most significant, the first the least.
+  That comparison order is why the rotated layout exists. Concretely, the
+  v7 application uuid
+
+      00112233-4455-7677-8899-aabbccddeeff
+
+  is stored as `ff ee dd cc bb aa 99 88 76 77 00 11 22 33 44 55` and
+  rendered by the server as
+
+      ccddeeff-aabb-8899-7677-001122334455
+
+  while a native-layout uuid renders as exactly the application-side
+  string. Storing the RFC bytes verbatim instead — what plain
+  `Ecto.Adapters.Tds` does for the `:uuid` primitive — would make the
+  server render the byte-swapped `33221100-5544-7776-8899-aabbccddeeff`,
+  a value the application would never find by string.
+
   Because values pass through this adapter's `dumpers/2`, use plain
   `:uuid`-typed (Ash or Ecto) types with it — not `Tds.Ecto.UUID`, which
   would swap the bytes a second time.
