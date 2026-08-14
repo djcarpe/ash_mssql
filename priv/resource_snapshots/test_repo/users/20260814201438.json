@@ -1,0 +1,65 @@
+{
+  "attributes": [
+    {
+      "default": "fragment(\"NEWID()\")",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": true,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "boolean",
+      "source": "is_active",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "organization_id",
+      "references": {
+        "name": "users_organization_id_fkey",
+        "table": "orgs",
+        "on_update": null,
+        "on_delete": null,
+        "primary_key?": true,
+        "multitenancy": {
+          "global": null,
+          "attribute": null,
+          "strategy": null
+        },
+        "destination_attribute": "id",
+        "deferrable": false,
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null
+      },
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    }
+  ],
+  "table": "users",
+  "hash": "35BE81D3A9C3E9CB8851E0E4EC049B43B44D7F9566BF1840B60ADD7B96B6DD29",
+  "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "base_filter": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true
+}

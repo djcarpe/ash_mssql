@@ -230,17 +230,16 @@ defmodule AshMssql.MigrationGenerator.Operation do
     @moduledoc false
     defstruct [:table, :references, :direction, no_phase: true]
 
-    def up(%{direction: :up, table: table, references: %{name: name, deferrable: true}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} DEFERRABLE INITIALLY IMMEDIATE\");"
+    def up(%{direction: :up, references: %{name: name, deferrable: deferrable}})
+        when deferrable in [true, :initially] do
+      raise "Cannot make reference #{name} deferrable: SQL Server does not support deferrable constraints"
     end
 
-    def up(%{direction: :up, table: table, references: %{name: name, deferrable: :initially}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} DEFERRABLE INITIALLY DEFERRED\");"
-    end
-
-    def up(%{direction: :up, table: table, references: %{name: name}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} NOT DEFERRABLE\");"
-    end
+    # SQL Server constraints are never deferrable, so "make it not
+    # deferrable" is a no-op (postgres emits ALTER CONSTRAINT here). This op
+    # is generated whenever a re-created reference's deferrability is
+    # (re)declared, e.g. after the referenced column changes.
+    def up(%{direction: :up}), do: ""
 
     def up(_), do: ""
 
@@ -391,6 +390,86 @@ defmodule AshMssql.MigrationGenerator.Operation do
           old_multitenancy: op.multitenancy,
           multitenancy: op.old_multitenancy
       })
+    end
+  end
+
+  defmodule AlterAttributeDefault do
+    @moduledoc false
+    # Changes ONLY a column's default. Rendered as raw DEFAULT-constraint DDL
+    # (outside any `alter table` block) because ecto's `modify` always emits
+    # `ALTER TABLE .. ALTER COLUMN ..`, which SQL Server rejects for columns
+    # that any constraint or index depends on — notably primary keys, which
+    # is exactly where uuid defaults land.
+    defstruct [
+      :old_attribute,
+      :new_attribute,
+      :table,
+      :multitenancy,
+      :old_multitenancy,
+      no_phase: true
+    ]
+
+    def up(%{new_attribute: attribute, table: table}) do
+      statements(table, attribute)
+    end
+
+    def down(%{old_attribute: attribute, table: table}) do
+      statements(table, attribute)
+    end
+
+    @doc false
+    # A default is renderable here when it is nothing (drop only) or a
+    # fragment/simple literal we can inline into the ADD CONSTRAINT.
+    def renderable_default?(default) do
+      default_sql(default) != :error
+    end
+
+    defp statements(table, %{source: source, default: default}) do
+      # The existing constraint's name isn't knowable (ecto names them
+      # DF_<prefix>_<table>_<column>, but hand-written DDL may not), so it
+      # is looked up and dropped dynamically.
+      drop = """
+      execute(\"\"\"
+      DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'#{table}') AND c.name = N'#{source}'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [#{table}] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
+      \"\"\")
+      """
+
+      case default_sql(default) do
+        nil ->
+          String.trim(drop)
+
+        sql ->
+          # Named to match ecto's DF_<prefix>_<table>_<column> convention so
+          # a later ecto-driven `modify` can find and replace it.
+          String.trim(drop) <>
+            "\n\nexecute(\"ALTER TABLE [#{table}] ADD CONSTRAINT [DF__#{table}_#{source}] DEFAULT (#{String.replace(sql, "\"", "\\\"")}) FOR [#{source}];\")"
+      end
+    end
+
+    defp default_sql(default) do
+      cond do
+        default in [nil, "nil"] ->
+          nil
+
+        is_binary(default) and String.starts_with?(default, "fragment(\"") and
+            String.ends_with?(default, "\")") ->
+          default
+          |> String.trim_leading("fragment(\"")
+          |> String.trim_trailing("\")")
+          |> String.replace("\\\"", "\"")
+
+        default == "true" ->
+          "1"
+
+        default == "false" ->
+          "0"
+
+        is_binary(default) and Regex.match?(~r/^-?\d+(\.\d+)?$/, default) ->
+          default
+
+        true ->
+          :error
+      end
     end
   end
 

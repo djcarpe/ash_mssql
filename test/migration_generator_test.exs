@@ -116,9 +116,10 @@ defmodule AshMssql.MigrationGeneratorTest do
 
       assert file_contents =~ ~S{create index(:posts, ["id"]}
 
-      # the migration adds the id, with its default
+      # the migration adds the id, with a database-side default so rows
+      # written outside Ash also get generated ids
       assert file_contents =~
-               ~S[add :id, :uuid, null: false, primary_key: true]
+               ~S[add :id, :uuid, null: false, default: fragment("NEWID()"), primary_key: true]
 
       # the migration adds the id, with its default
       assert file_contents =~

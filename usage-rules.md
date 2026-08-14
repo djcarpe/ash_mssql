@@ -12,6 +12,10 @@ Note that SQL Server sorts uniqueidentifiers by their *last* string group
 first, so `uuid_v7` primary keys do not insert sequentially into a clustered
 index the way they do on byte-wise-comparing databases; prefer
 `integer_primary_key` when insert locality matters.
+Like ash_postgres, generated migrations give uuid primary keys a database-side
+DEFAULT (`NEWID()` for `uuid_primary_key`, a T-SQL RFC 9562 v7 builder for
+`uuid_v7_primary_key`), so rows inserted outside Ash also get ids; Ash itself
+always generates ids client-side.
 It sits on the shared `ash_sql` query-building
 library, the same foundation used by `ash_postgres`, so most Ash querying,
 filtering, calculation, aggregate, and relationship features work the same way.

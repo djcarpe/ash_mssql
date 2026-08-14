@@ -1799,13 +1799,31 @@ defmodule AshMssql.MigrationGenerator do
             old_and_alter
           end
         else
-          [
-            %Operation.AlterAttribute{
-              new_attribute: Map.delete(new_attribute, :references),
-              old_attribute: Map.delete(old_attribute, :references),
-              table: snapshot.table
-            }
-          ]
+          new_attribute = Map.delete(new_attribute, :references)
+          old_attribute = Map.delete(old_attribute, :references)
+
+          # A default-only change is emitted as DEFAULT-constraint DDL rather
+          # than `modify`: ecto's modify always ALTER COLUMNs, which SQL
+          # Server rejects on constrained columns (e.g. primary keys).
+          if default_only_change?(new_attribute, old_attribute) and
+               Operation.AlterAttributeDefault.renderable_default?(new_attribute.default) and
+               Operation.AlterAttributeDefault.renderable_default?(old_attribute.default) do
+            [
+              %Operation.AlterAttributeDefault{
+                new_attribute: new_attribute,
+                old_attribute: old_attribute,
+                table: snapshot.table
+              }
+            ]
+          else
+            [
+              %Operation.AlterAttribute{
+                new_attribute: new_attribute,
+                old_attribute: old_attribute,
+                table: snapshot.table
+              }
+            ]
+          end
         end
         |> Enum.concat(deferrable_ops)
       end)
@@ -1821,6 +1839,11 @@ defmodule AshMssql.MigrationGenerator do
 
     add_attribute_events ++
       alter_attribute_events ++ remove_attribute_events ++ rename_attribute_events
+  end
+
+  defp default_only_change?(new_attribute, old_attribute) do
+    new_attribute.default != old_attribute.default and
+      Map.delete(new_attribute, :default) == Map.delete(old_attribute, :default)
   end
 
   defp differently_deferrable?(%{references: %{deferrable: left}}, %{
@@ -2401,8 +2424,29 @@ defmodule AshMssql.MigrationGenerator do
     |> Enum.map(&Map.put(&1, :base_filter, AshMssql.DataLayer.Info.base_filter_sql(resource)))
   end
 
+  @uuid_functions [&Ash.UUID.generate/0, &Ecto.UUID.generate/0]
+
+  # SQL Server has no built-in uuid v7 generator, so the default builds one:
+  # take a NEWID() (random v4), overwrite the first 12 hex chars of its string
+  # form with the 48-bit unix-millisecond timestamp, and force the version
+  # nibble to 7. The v4's variant nibble is already valid for v7 and its
+  # remaining 74 random bits become rand_a/rand_b, matching RFC 9562.
+  # Building via the string form (rather than binary concatenation) keeps the
+  # stored value string-faithful, in the same layout the adapter writes.
+  @uuid_v7_default ~S{CONVERT(uniqueidentifier, STUFF(STUFF(LOWER(CONVERT(char(36), NEWID())), 1, 13, STUFF(CONVERT(varchar(12), CONVERT(binary(6), DATEDIFF_BIG(millisecond, '1970-01-01', SYSUTCDATETIME())), 2), 9, 0, '-')), 15, 1, '7'))}
+
   defp default(%{name: name, default: default}, resource, _repo) when is_function(default) do
-    configured_default(resource, name) || "nil"
+    configured_default(resource, name) ||
+      cond do
+        default in @uuid_functions ->
+          ~S[fragment("NEWID()")]
+
+        default == (&Ash.UUIDv7.generate/0) ->
+          "fragment(\"#{@uuid_v7_default}\")"
+
+        true ->
+          "nil"
+      end
   end
 
   defp default(%{name: name, default: {_, _, _}}, resource, _),
