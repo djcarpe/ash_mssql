@@ -230,20 +230,12 @@ defmodule AshMssql.MigrationGenerator.Operation do
     @moduledoc false
     defstruct [:table, :references, :direction, no_phase: true]
 
-    def up(%{direction: :up, references: %{name: name, deferrable: deferrable}})
-        when deferrable in [true, :initially] do
-      raise "Cannot make reference #{name} deferrable: SQL Server does not support deferrable constraints"
-    end
-
-    # SQL Server constraints are never deferrable, so "make it not
-    # deferrable" is a no-op (postgres emits ALTER CONSTRAINT here). This op
-    # is generated whenever a re-created reference's deferrability is
-    # (re)declared, e.g. after the referenced column changes.
-    def up(%{direction: :up}), do: ""
-
+    # SQL Server constraints are never deferrable: deferrable references are
+    # rejected at compile time (ValidateReferences), and "make it not
+    # deferrable" is a no-op (postgres emits ALTER CONSTRAINT here). Legacy
+    # snapshots that still carry `deferrable: true` render as no-ops too, so
+    # generating the migration that removes the option always succeeds.
     def up(_), do: ""
-
-    def down(%{direction: :down} = data), do: up(%{data | direction: :up})
     def down(_), do: ""
   end
 
@@ -440,23 +432,25 @@ defmodule AshMssql.MigrationGenerator.Operation do
 
         sql ->
           # Named to match ecto's DF_<prefix>_<table>_<column> convention so
-          # a later ecto-driven `modify` can find and replace it.
+          # a later ecto-driven `modify` can find and replace it. `sql` is
+          # Elixir source text (see default_sql/1) and is spliced verbatim,
+          # so it compiles in the generated migration exactly as the same
+          # default text does on the create-table (`add ... default:`) path.
           String.trim(drop) <>
-            "\n\nexecute(\"ALTER TABLE [#{table}] ADD CONSTRAINT [DF__#{table}_#{source}] DEFAULT (#{String.replace(sql, "\"", "\\\"")}) FOR [#{source}];\")"
+            "\n\nexecute(\"ALTER TABLE [#{table}] ADD CONSTRAINT [DF__#{table}_#{source}] DEFAULT (#{sql}) FOR [#{source}];\")"
       end
     end
+
+    # Matches exactly `fragment("...")` with a single string-literal argument,
+    # capturing the literal's source text (escapes intact). Anchored full
+    # match: multi-argument fragments, trailing content, or anything else
+    # falls through to :error (and from there back to a plain AlterAttribute).
+    @single_string_fragment ~r/\Afragment\("((?:[^"\\]|\\.)*)"\)\z/
 
     defp default_sql(default) do
       cond do
         default in [nil, "nil"] ->
           nil
-
-        is_binary(default) and String.starts_with?(default, "fragment(\"") and
-            String.ends_with?(default, "\")") ->
-          default
-          |> String.trim_leading("fragment(\"")
-          |> String.trim_trailing("\")")
-          |> String.replace("\\\"", "\"")
 
         default == "true" ->
           "1"
@@ -464,11 +458,17 @@ defmodule AshMssql.MigrationGenerator.Operation do
         default == "false" ->
           "0"
 
-        is_binary(default) and Regex.match?(~r/^-?\d+(\.\d+)?$/, default) ->
+        not is_binary(default) ->
+          :error
+
+        Regex.match?(~r/^-?\d+(\.\d+)?$/, default) ->
           default
 
         true ->
-          :error
+          case Regex.run(@single_string_fragment, default) do
+            [_, source] -> source
+            nil -> :error
+          end
       end
     end
   end

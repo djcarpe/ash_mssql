@@ -623,17 +623,14 @@ defmodule AshMssql.SqlImplementation do
   # values that are wrapped in an ecto `type()` cast: the ecto type's dump
   # passes raw bytes through and `AshMssql.EctoAdapter`'s dumpers then swap
   # them into SQL Server's native uniqueidentifier byte order.
-  defp uuid_expr(expr, {:parameterized, {Ash.Type.UUID.EctoType, _}}) when is_binary(expr) do
-    case Ash.Type.dump_to_native(Ash.Type.UUID, expr) do
-      {:ok, v} -> v
-      _ -> expr
-    end
-  end
-
-  defp uuid_expr(expr, {:parameterized, {Ash.Type.UUIDv7.EctoType, _}}) when is_binary(expr) do
-    case Ash.Type.dump_to_native(Ash.Type.UUID, expr) do
-      {:ok, v} -> v
-      _ -> expr
+  defp uuid_expr(expr, {:parameterized, {ecto_type, params}}) when is_binary(expr) do
+    if uuid_ecto_type?(ecto_type, params) do
+      case Ash.Type.dump_to_native(Ash.Type.UUID, expr) do
+        {:ok, v} -> v
+        _ -> expr
+      end
+    else
+      expr
     end
   end
 
@@ -654,16 +651,28 @@ defmodule AshMssql.SqlImplementation do
   # list feeds a parameter list directly, so the driver receives the
   # DynamicExpr struct itself and rejects it. The bytes must therefore
   # already be in stored order when the query is built.
-  defp native_uuid_expr(expr, {:parameterized, {ecto_type, _}})
-       when ecto_type in [Ash.Type.UUID.EctoType, Ash.Type.UUIDv7.EctoType] and is_binary(expr) do
-    case Tds.Ecto.UUID.dump(expr) do
-      {:ok, v} -> v
-      :error -> expr
+  defp native_uuid_expr(expr, {:parameterized, {ecto_type, params}}) when is_binary(expr) do
+    if uuid_ecto_type?(ecto_type, params) do
+      case Tds.Ecto.UUID.dump(expr) do
+        {:ok, v} -> v
+        :error -> expr
+      end
+    else
+      expr
     end
   end
 
   defp native_uuid_expr(expr, _type) do
     expr
+  end
+
+  # Keyed on the ecto type's primitive (:uuid) rather than a hardcoded module
+  # list, so uuid NewTypes/custom types take the same wire path as
+  # Ash.Type.UUID/UUIDv7 — the same discriminator AshMssql.EctoAdapter's
+  # loaders/dumpers dispatch on.
+  defp uuid_ecto_type?(ecto_type, params) do
+    Code.ensure_loaded?(ecto_type) and function_exported?(ecto_type, :type, 1) and
+      ecto_type.type(params) == :uuid
   end
 
   @impl true

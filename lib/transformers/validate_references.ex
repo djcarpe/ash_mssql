@@ -16,6 +16,14 @@ defmodule AshMssql.Transformers.ValidateReferences do
           message:
             "Found reference configuration for relationship `#{reference.relationship}`, but no such relationship exists"
       end
+
+      if reference.deferrable && reference.deferrable != false do
+        raise Spark.Error.DslError,
+          path: [:mssql, :references, reference.relationship],
+          module: Transformer.get_persisted(dsl, :module),
+          message:
+            "Reference `#{reference.relationship}` is marked deferrable, but SQL Server does not support deferrable constraints"
+      end
     end)
 
     {:ok, dsl}

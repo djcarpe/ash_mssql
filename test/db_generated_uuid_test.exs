@@ -10,8 +10,8 @@ defmodule AshMssql.Test.DbGeneratedUuidTest do
   use AshMssql.RepoCase, async: false
   alias AshMssql.Test.{Account, UuidV7Post}
 
-  @v4 ~r/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-  @v7 ~r/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  @v4 AshMssql.Test.UuidPatterns.v4()
+  @v7 AshMssql.Test.UuidPatterns.v7()
 
   test "the database generates a v4 uuid for rows inserted without an id" do
     %{rows: [[id]]} =

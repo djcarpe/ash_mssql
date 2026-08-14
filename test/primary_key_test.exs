@@ -38,7 +38,7 @@ defmodule AshMssql.Test.PrimaryKeyTest do
     test "the id is a generated version 4 uuid" do
       post = Post |> Ash.Changeset.for_create(:create, %{title: "title"}) |> Ash.create!()
 
-      assert post.id =~ ~r/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      assert post.id =~ AshMssql.Test.UuidPatterns.v4()
     end
 
     test "records can be fetched by their generated id" do
@@ -64,7 +64,7 @@ defmodule AshMssql.Test.PrimaryKeyTest do
     test "the id is a generated version 7 uuid" do
       post = UuidV7Post |> Ash.Changeset.for_create(:create, %{title: "title"}) |> Ash.create!()
 
-      assert post.id =~ ~r/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      assert post.id =~ AshMssql.Test.UuidPatterns.v7()
     end
 
     test "records can be fetched by their generated id" do

@@ -57,9 +57,9 @@ defmodule AshMssql.EctoAdapter do
   sees the same uuid values; if insert locality matters more than v7 key
   semantics, prefer `integer_primary_key`.
 
-  Because values pass through this adapter's `dumpers/2`, use plain
-  `:uuid`-typed (Ash or Ecto) types with it — not `Tds.Ecto.UUID`, which
-  would swap the bytes a second time.
+  `Tds.Ecto.UUID` fields are recognized and bypass the swap (that type
+  already dumps to native byte order), so plain ecto schemas sharing this
+  repo keep working.
   """
 
   @behaviour Ecto.Adapter
@@ -89,10 +89,15 @@ defmodule AshMssql.EctoAdapter do
   defdelegate checked_out?(meta), to: Tds
 
   @impl Ecto.Adapter
+  # Tds.Ecto.UUID's own dump/load already use SQL Server's native byte order
+  # (and its primitive type is :uuid), so it must bypass the swap — otherwise
+  # a plain ecto schema using it on this repo would be double-swapped.
+  def loaders(:uuid, Tds.Ecto.UUID = type), do: [type]
   def loaders(:uuid, type), do: [&load_uuid/1, type]
   def loaders(primitive, type), do: Tds.loaders(primitive, type)
 
   @impl Ecto.Adapter
+  def dumpers(:uuid, Tds.Ecto.UUID = type), do: [type]
   def dumpers(:uuid, type), do: [type, &dump_uuid/1]
   def dumpers(primitive, type), do: Tds.dumpers(primitive, type)
 
