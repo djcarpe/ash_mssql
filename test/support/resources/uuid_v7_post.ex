@@ -15,7 +15,7 @@ defmodule AshMssql.Test.UuidV7Post do
   end
 
   attributes do
-    uuid_v7_primary_key(:id)
+    uuid_v7_primary_key(:id, writable?: true)
     attribute(:title, :string, public?: true)
   end
 end

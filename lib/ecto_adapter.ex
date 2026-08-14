@@ -14,9 +14,12 @@ defmodule AshMssql.EctoAdapter do
   be a byte-swapped variant of the UUID the application sees, and
   server-side lookups by UUID string would not find the row.
 
-  This adapter swaps `:uuid` values into SQL Server's native byte order on
-  dump and back on load, so the database-side representation (string and
-  binary) always agrees with the application-side UUID.
+  This adapter converts `:uuid` values into the layouts described in
+  `AshMssql.UUID` on dump and back on load: SQL Server's native byte order
+  for most UUIDs (so the database-side string and binary forms agree with
+  the application-side UUID), and a rotated, index-friendly layout for
+  version 7 UUIDs (so time-ordered v7 keys insert sequentially instead of
+  at random index positions — see `AshMssql.UUID` for the trade-off).
 
   Because values pass through this adapter's `dumpers/2`, use plain
   `:uuid`-typed (Ash or Ecto) types with it — not `Tds.Ecto.UUID`, which
@@ -57,21 +60,16 @@ defmodule AshMssql.EctoAdapter do
   def dumpers(:uuid, type), do: [type, &dump_uuid/1]
   def dumpers(primitive, type), do: Tds.dumpers(primitive, type)
 
-  # `uniqueidentifier` internal (mixed-endian) bytes -> RFC 4122 big-endian,
-  # which is what `:uuid` ecto types load. The swap is an involution, so
-  # dump is the same byte shuffle in the other direction.
-  defp load_uuid(<<_::128>> = value), do: {:ok, swap_uuid(value)}
+  # Stored `uniqueidentifier` bytes -> RFC 4122 big-endian, which is what
+  # `:uuid` ecto types load.
+  defp load_uuid(<<_::128>> = value), do: {:ok, AshMssql.UUID.from_stored(value)}
   defp load_uuid(value), do: {:ok, value}
 
   # Runs after the ecto type's own dump, which produces RFC 4122 big-endian
   # bytes. Non-16-byte values (nil, or strings from a raw `:uuid` primitive
   # cast) pass through for the driver to handle.
-  defp dump_uuid(<<_::128>> = value), do: {:ok, swap_uuid(value)}
+  defp dump_uuid(<<_::128>> = value), do: {:ok, AshMssql.UUID.to_stored(value)}
   defp dump_uuid(value), do: {:ok, value}
-
-  defp swap_uuid(<<a::32, b::16, c::16, rest::binary-size(8)>>) do
-    <<a::little-32, b::little-16, c::little-16, rest::binary>>
-  end
 
   @impl Ecto.Adapter.Queryable
   defdelegate prepare(operation, query), to: Tds
