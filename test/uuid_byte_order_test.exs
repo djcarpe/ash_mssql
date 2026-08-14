@@ -70,7 +70,9 @@ defmodule AshMssql.Test.UuidByteOrderTest do
       end
 
       # IN-list elements travel as untyped parameters (unlike single-value
-      # equality), so they exercise a separate dump path.
+      # equality), so they exercise a separate dump path: the adapter's
+      # dumpers never see them (see native_uuid_expr/2 in
+      # AshMssql.SqlImplementation).
       test "the row is found by an `in` filter on its id" do
         post = create!(unquote(resource))
 
@@ -80,6 +82,33 @@ defmodule AshMssql.Test.UuidByteOrderTest do
                  |> Ash.read!()
 
         assert id == post.id
+      end
+
+      test "an `in` filter with multiple uuids returns exactly the matching rows" do
+        posts = for _ <- 1..3, do: create!(unquote(resource))
+        _decoy = create!(unquote(resource))
+        ids = Enum.map(posts, & &1.id)
+
+        found =
+          unquote(resource)
+          |> Ash.Query.filter(id in ^ids)
+          |> Ash.read!()
+          |> Enum.map(& &1.id)
+
+        assert Enum.sort(found) == Enum.sort(ids)
+      end
+
+      test "an `in` filter mixing present and absent uuids returns only the present ones" do
+        post = create!(unquote(resource))
+        absent = [Ash.UUID.generate(), Ash.UUID.generate()]
+
+        found =
+          unquote(resource)
+          |> Ash.Query.filter(id in ^([post.id] ++ absent))
+          |> Ash.read!()
+          |> Enum.map(& &1.id)
+
+        assert found == [post.id]
       end
     end
   end

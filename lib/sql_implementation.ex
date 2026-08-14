@@ -641,11 +641,19 @@ defmodule AshMssql.SqlImplementation do
     expr
   end
 
-  # Pre-dumps literal uuid strings for list (IN/array) elements. Unlike
-  # single values, these are embedded as untyped parameters (the column side
-  # of the comparison carries the CAST), so they bypass the adapter's
-  # dumpers and must already be in SQL Server's native (mixed-endian)
-  # uniqueidentifier byte order.
+  # Pre-dumps literal uuid strings for list (IN/array) elements into SQL
+  # Server's native (mixed-endian) uniqueidentifier byte order.
+  #
+  # Unlike single values, these elements cannot be corrected by
+  # `AshMssql.EctoAdapter`'s dumpers: ash_sql's `list_expr` expands the list
+  # into individual *untyped* parameters (the column side of the comparison
+  # carries the CAST), and the planner only consults adapter dumpers for
+  # parameters that carry an ecto type — verified empirically: RFC-ordered
+  # bytes here reach the wire unswapped and match nothing. Wrapping each
+  # element in a `type(^elem, ^type)` dynamic doesn't work either: this
+  # list feeds a parameter list directly, so the driver receives the
+  # DynamicExpr struct itself and rejects it. The bytes must therefore
+  # already be in stored order when the query is built.
   defp native_uuid_expr(expr, {:parameterized, {ecto_type, _}})
        when ecto_type in [Ash.Type.UUID.EctoType, Ash.Type.UUIDv7.EctoType] and is_binary(expr) do
     case Tds.Ecto.UUID.dump(expr) do
