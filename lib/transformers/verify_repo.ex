@@ -17,8 +17,10 @@ defmodule AshMssql.Transformers.VerifyRepo do
       match?({:error, _}, Code.ensure_compiled(repo)) ->
         {:error, "Could not find repo module #{inspect(repo)}"}
 
-      repo.__adapter__() != Ecto.Adapters.Tds ->
-        {:error, "Expected a repo using the MSSQL adapter `Ecto.Adapters.Tds`"}
+      repo.__adapter__() != AshMssql.EctoAdapter ->
+        {:error,
+         "Expected a repo using the `AshMssql.EctoAdapter` adapter (used by `use AshMssql.Repo`). " <>
+           "Using `Ecto.Adapters.Tds` directly would store `:uuid` values with incorrect byte order."}
 
       true ->
         {:ok, dsl}

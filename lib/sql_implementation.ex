@@ -564,7 +564,7 @@ defmodule AshMssql.SqlImplementation do
   def type_expr(expr, nil), do: expr
 
   def type_expr(expr, {tag, type}) when is_list(expr) and tag in [:array, :in] do
-    Enum.map(expr, &uuid_expr(&1, type))
+    Enum.map(expr, &native_uuid_expr(&1, type))
   end
 
   def type_expr(expr, {tag, _type}) when tag in [:array, :in] do
@@ -619,6 +619,10 @@ defmodule AshMssql.SqlImplementation do
     end
   end
 
+  # Pre-dumps literal uuid strings to raw RFC 4122 (big-endian) bytes for
+  # values that are wrapped in an ecto `type()` cast: the ecto type's dump
+  # passes raw bytes through and `AshMssql.EctoAdapter`'s dumpers then swap
+  # them into SQL Server's native uniqueidentifier byte order.
   defp uuid_expr(expr, {:parameterized, {Ash.Type.UUID.EctoType, _}}) when is_binary(expr) do
     case Ash.Type.dump_to_native(Ash.Type.UUID, expr) do
       {:ok, v} -> v
@@ -634,6 +638,23 @@ defmodule AshMssql.SqlImplementation do
   end
 
   defp uuid_expr(expr, _type) do
+    expr
+  end
+
+  # Pre-dumps literal uuid strings for list (IN/array) elements. Unlike
+  # single values, these are embedded as untyped parameters (the column side
+  # of the comparison carries the CAST), so they bypass the adapter's
+  # dumpers and must already be in SQL Server's native (mixed-endian)
+  # uniqueidentifier byte order.
+  defp native_uuid_expr(expr, {:parameterized, {ecto_type, _}})
+       when ecto_type in [Ash.Type.UUID.EctoType, Ash.Type.UUIDv7.EctoType] and is_binary(expr) do
+    case Tds.Ecto.UUID.dump(expr) do
+      {:ok, v} -> v
+      :error -> expr
+    end
+  end
+
+  defp native_uuid_expr(expr, _type) do
     expr
   end
 

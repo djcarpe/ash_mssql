@@ -3,7 +3,11 @@
 ## Understanding AshMssql
 
 AshMssql is the Microsoft SQL Server data layer for Ash Framework, built on the
-`tds` driver (`Ecto.Adapters.Tds`). It sits on the shared `ash_sql` query-building
+`tds` driver via `AshMssql.EctoAdapter`, a thin wrapper around `Ecto.Adapters.Tds`
+that stores `:uuid` values (e.g. `Ash.Type.UUID`, `Ash.Type.UUIDv7`) in SQL
+Server's native `uniqueidentifier` byte order, so ids render and compare the
+same in the application and the database. Repos must use `use AshMssql.Repo`,
+which selects this adapter. It sits on the shared `ash_sql` query-building
 library, the same foundation used by `ash_postgres`, so most Ash querying,
 filtering, calculation, aggregate, and relationship features work the same way.
 
