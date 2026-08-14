@@ -10,10 +10,8 @@
 
 Welcome! `AshMssql` is a Microsoft SQL Server data layer for [Ash Framework](https://hexdocs.pm/ash),
 built on the `tds` driver (via `AshMssql.EctoAdapter`, a thin wrapper around
-`Ecto.Adapters.Tds` that stores `:uuid` values in the `uniqueidentifier`
-layouts described in `AshMssql.UUID` — native byte order for most UUIDs,
-and an index-friendly rotated layout for time-ordered UUIDv7 keys) and
-derived from
+`Ecto.Adapters.Tds` that corrects `uniqueidentifier` byte order for `:uuid`
+values) and derived from
 [`AshMysql`](https://hex.pm/packages/ash_mysql). Both sit on the shared
 [`ash_sql`](https://hex.pm/packages/ash_sql) query-building library.
 

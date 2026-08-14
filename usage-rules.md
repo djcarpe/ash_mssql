@@ -4,16 +4,15 @@
 
 AshMssql is the Microsoft SQL Server data layer for Ash Framework, built on the
 `tds` driver via `AshMssql.EctoAdapter`, a thin wrapper around `Ecto.Adapters.Tds`
-that stores `:uuid` values in the `uniqueidentifier` layouts described in
-`AshMssql.UUID`: most UUIDs (v4 etc.) in SQL Server's native byte order, so ids
-render and compare the same in the application and the database, and version 7
-UUIDs in a rotated layout so SQL Server's unusual uniqueidentifier sort order
-(last string group first) sorts them by timestamp — time-ordered `uuid_v7`
-primary keys insert sequentially into the clustered index instead of at random
-positions. The server-side string form of a v7 id therefore differs from the
-application-side uuid; use `AshMssql.UUID.mssql_string/1` /
-`from_mssql_string/1` when writing raw SQL against v7 columns. Repos must use
-`use AshMssql.Repo`, which selects this adapter. It sits on the shared `ash_sql` query-building
+that stores `:uuid` values (e.g. `Ash.Type.UUID`, `Ash.Type.UUIDv7`) in SQL
+Server's native `uniqueidentifier` byte order, so ids render and compare the
+same in the application, the database, and any other client of the same
+database. Repos must use `use AshMssql.Repo`, which selects this adapter.
+Note that SQL Server sorts uniqueidentifiers by their *last* string group
+first, so `uuid_v7` primary keys do not insert sequentially into a clustered
+index the way they do on byte-wise-comparing databases; prefer
+`integer_primary_key` when insert locality matters.
+It sits on the shared `ash_sql` query-building
 library, the same foundation used by `ash_postgres`, so most Ash querying,
 filtering, calculation, aggregate, and relationship features work the same way.
 

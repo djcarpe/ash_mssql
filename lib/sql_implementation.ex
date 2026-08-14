@@ -644,12 +644,12 @@ defmodule AshMssql.SqlImplementation do
   # Pre-dumps literal uuid strings for list (IN/array) elements. Unlike
   # single values, these are embedded as untyped parameters (the column side
   # of the comparison carries the CAST), so they bypass the adapter's
-  # dumpers and must already be in the stored uniqueidentifier layout
-  # (see `AshMssql.UUID`).
+  # dumpers and must already be in SQL Server's native (mixed-endian)
+  # uniqueidentifier byte order.
   defp native_uuid_expr(expr, {:parameterized, {ecto_type, _}})
        when ecto_type in [Ash.Type.UUID.EctoType, Ash.Type.UUIDv7.EctoType] and is_binary(expr) do
-    case Ecto.UUID.dump(expr) do
-      {:ok, raw} -> AshMssql.UUID.to_stored(raw)
+    case Tds.Ecto.UUID.dump(expr) do
+      {:ok, v} -> v
       :error -> expr
     end
   end

@@ -14,12 +14,12 @@ defmodule AshMssql.EctoAdapter do
   be a byte-swapped variant of the UUID the application sees, and
   server-side lookups by UUID string would not find the row.
 
-  This adapter converts `:uuid` values into the layouts described in
-  `AshMssql.UUID` on dump and back on load: SQL Server's native byte order
-  for most UUIDs (so the database-side string and binary forms agree with
-  the application-side UUID), and a rotated, index-friendly layout for
-  version 7 UUIDs (so time-ordered v7 keys insert sequentially instead of
-  at random index positions — see `AshMssql.UUID` for the trade-off).
+  This adapter swaps `:uuid` values (every version, v7 included) into SQL
+  Server's native byte order on dump and back on load, so the
+  database-side representation (string and binary) always agrees with the
+  application-side UUID: any other consumer of the same database — other
+  drivers, SSMS, reports — sees exactly the uuid values the application
+  sees.
 
   ## Byte order at a glance
 
@@ -30,36 +30,32 @@ defmodule AshMssql.EctoAdapter do
 
           b0  b1  b2  b3   b4  b5   b6  b7   b8  b9   b10 b11 b12 b13 b14 b15
 
-      stored uniqueidentifier, native layout (every version but 7) — the
-      first three groups little-endian, exactly how SQL Server lays out a
-      GUID whose string form equals the application uuid:
+      stored uniqueidentifier — the first three groups little-endian,
+      exactly how SQL Server lays out a GUID whose string form equals the
+      application uuid:
 
           b3  b2  b1  b0   b5  b4   b7  b6   b8  b9   b10 b11 b12 b13 b14 b15
 
-      stored uniqueidentifier, rotated layout (version 7) — the timestamp
-      (`b0..b5`) moved into the bytes SQL Server compares first:
-
-          b15 b14 b13 b12  b11 b10  b9  b8   b6  b7   b0  b1  b2  b3  b4  b5
-
   SQL Server renders stored bytes `s0..s15` as the string
-  `s3 s2 s1 s0 - s5 s4 - s7 s6 - s8 s9 - s10 s11 s12 s13 s14 s15`, and
-  compares two uniqueidentifiers group-wise in the *opposite* order of the
-  string: the last group is the most significant, the first the least.
-  That comparison order is why the rotated layout exists. Concretely, the
-  v7 application uuid
+  `s3 s2 s1 s0 - s5 s4 - s7 s6 - s8 s9 - s10 s11 s12 s13 s14 s15`, so the
+  stored layout above renders as exactly the application-side string.
+  Storing the RFC bytes verbatim instead — what plain `Ecto.Adapters.Tds`
+  does for the `:uuid` primitive — would make the server render
+  `00112233-4455-6677-8899-aabbccddeeff` as the byte-swapped
+  `33221100-5544-7766-8899-aabbccddeeff`, a value the application would
+  never find by string.
 
-      00112233-4455-7677-8899-aabbccddeeff
+  ## UUIDv7 and index locality
 
-  is stored as `ff ee dd cc bb aa 99 88 76 77 00 11 22 33 44 55` and
-  rendered by the server as
-
-      ccddeeff-aabb-8899-7677-001122334455
-
-  while a native-layout uuid renders as exactly the application-side
-  string. Storing the RFC bytes verbatim instead — what plain
-  `Ecto.Adapters.Tds` does for the `:uuid` primitive — would make the
-  server render the byte-swapped `33221100-5544-7776-8899-aabbccddeeff`,
-  a value the application would never find by string.
+  SQL Server *compares* uniqueidentifiers group-wise in the opposite order
+  of the string form — the last group is the most significant, the first
+  the least. A version 7 uuid carries its timestamp in the first group, so
+  time-ordered v7 keys do not sort by creation time and insert at
+  effectively random positions in a clustered primary key, unlike on
+  databases that compare uuids byte-wise. AshMssql deliberately stores v7
+  values string-faithfully anyway, so that every client of the database
+  sees the same uuid values; if insert locality matters more than v7 key
+  semantics, prefer `integer_primary_key`.
 
   Because values pass through this adapter's `dumpers/2`, use plain
   `:uuid`-typed (Ash or Ecto) types with it — not `Tds.Ecto.UUID`, which
@@ -100,16 +96,21 @@ defmodule AshMssql.EctoAdapter do
   def dumpers(:uuid, type), do: [type, &dump_uuid/1]
   def dumpers(primitive, type), do: Tds.dumpers(primitive, type)
 
-  # Stored `uniqueidentifier` bytes -> RFC 4122 big-endian, which is what
-  # `:uuid` ecto types load.
-  defp load_uuid(<<_::128>> = value), do: {:ok, AshMssql.UUID.from_stored(value)}
+  # `uniqueidentifier` internal (mixed-endian) bytes -> RFC 4122 big-endian,
+  # which is what `:uuid` ecto types load. The swap is an involution, so
+  # dump is the same byte shuffle in the other direction.
+  defp load_uuid(<<_::128>> = value), do: {:ok, swap_uuid(value)}
   defp load_uuid(value), do: {:ok, value}
 
   # Runs after the ecto type's own dump, which produces RFC 4122 big-endian
   # bytes. Non-16-byte values (nil, or strings from a raw `:uuid` primitive
   # cast) pass through for the driver to handle.
-  defp dump_uuid(<<_::128>> = value), do: {:ok, AshMssql.UUID.to_stored(value)}
+  defp dump_uuid(<<_::128>> = value), do: {:ok, swap_uuid(value)}
   defp dump_uuid(value), do: {:ok, value}
+
+  defp swap_uuid(<<a::32, b::16, c::16, rest::binary-size(8)>>) do
+    <<a::little-32, b::little-16, c::little-16, rest::binary>>
+  end
 
   @impl Ecto.Adapter.Queryable
   defdelegate prepare(operation, query), to: Tds
