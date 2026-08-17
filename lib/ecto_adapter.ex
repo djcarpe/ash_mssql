@@ -160,6 +160,9 @@ defmodule AshMssql.EctoAdapter do
   defdelegate in_transaction?(adapter_meta), to: Tds
 
   @impl Ecto.Adapter.Transaction
+  # The no_return spec keeps dialyzer from flagging this delegate to a
+  # throwing function as "has no local return".
+  @spec rollback(Ecto.Adapter.adapter_meta(), term()) :: no_return()
   defdelegate rollback(adapter_meta, value), to: Tds
 
   @impl Ecto.Adapter.Migration
