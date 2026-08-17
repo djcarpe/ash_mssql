@@ -6,7 +6,6 @@ defmodule AshMssql.Test.Domain do
     resource(AshMssql.Test.Post)
     resource(AshMssql.Test.Comment)
     resource(AshMssql.Test.IntegerPost)
-    resource(AshMssql.Test.UuidV7Post)
     resource(AshMssql.Test.Rating)
     resource(AshMssql.Test.PostLink)
     resource(AshMssql.Test.PostView)
