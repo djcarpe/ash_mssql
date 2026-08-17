@@ -66,11 +66,12 @@ defmodule AshMssql.Test.DbGeneratedUuidTest do
   end
 
   describe "generated?: true uuid attributes" do
-    # These attributes have NO Ash default: the value comes from the column
-    # DEFAULT (via migration_defaults) and is read back after the write.
-    # Beyond shape, each test pins byte order: the server-side string form
-    # must equal the application-side uuid, and the value must be filterable
-    # back through Ash (the dump path must agree with the stored bytes).
+    # These attributes have NO Ash default: the migration generator derives a
+    # column DEFAULT from the attribute type automatically, and the value is
+    # read back after the write. Beyond shape, each test pins byte order: the
+    # server-side string form must equal the application-side uuid, and the
+    # value must be filterable back through Ash (the dump path must agree
+    # with the stored bytes).
     test "the database fills a generated?: true :uuid attribute on Ash create" do
       account =
         Account |> Ash.Changeset.for_create(:create, %{is_active: true}) |> Ash.create!()
@@ -131,8 +132,12 @@ defmodule AshMssql.Test.DbGeneratedUuidTest do
       """)
 
     assert String.downcase(id) =~ @v4
-    assert NaiveDateTime.diff(server_now, created_at, :second) in 0..5
-    assert NaiveDateTime.diff(server_now, updated_at, :second) in 0..5
+
+    # -1 is legitimate: datetime2(6) ROUNDS the stored default up while the
+    # OUTPUT's datetime2(7) is truncated on decode, and diff/3 floors each
+    # side — at a second boundary the stored value can lead by a microsecond.
+    assert NaiveDateTime.diff(server_now, created_at, :second) in -1..5
+    assert NaiveDateTime.diff(server_now, updated_at, :second) in -1..5
   end
 
   test "Ash creates still generate ids client-side (default does not interfere)" do

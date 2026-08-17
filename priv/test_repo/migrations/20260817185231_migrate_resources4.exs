@@ -1,4 +1,4 @@
-defmodule AshMssql.TestRepo.Migrations.MigrateResources5 do
+defmodule AshMssql.TestRepo.Migrations.MigrateResources4 do
   @moduledoc """
   Updates resources based on their most recent snapshots.
 
@@ -8,6 +8,10 @@ defmodule AshMssql.TestRepo.Migrations.MigrateResources5 do
   use Ecto.Migration
 
   def up do
+    alter table(:accounts) do
+      add :db_v4, :uuid, default: fragment("NEWID()")
+    end
+
     execute("""
     DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'posts') AND c.name = N'updated_at'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [posts] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
     """)
@@ -39,9 +43,25 @@ defmodule AshMssql.TestRepo.Migrations.MigrateResources5 do
     execute(
       "ALTER TABLE [post_views] ADD CONSTRAINT [DF__post_views_time] DEFAULT (SYSUTCDATETIME()) FOR [time];"
     )
+
+    alter table(:uuid_v7_posts) do
+      add :db_v7, :uuid,
+        default:
+          fragment(
+            "CONVERT(uniqueidentifier, STUFF(STUFF(LOWER(CONVERT(char(36), NEWID())), 1, 13, STUFF(CONVERT(varchar(12), CONVERT(binary(6), DATEDIFF_BIG(millisecond, '1970-01-01', SYSUTCDATETIME())), 2), 9, 0, '-')), 15, 1, '7'))"
+          )
+    end
   end
 
   def down do
+    execute("""
+    DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'uuid_v7_posts') AND c.name = N'db_v7'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [uuid_v7_posts] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
+    """)
+
+    alter table(:uuid_v7_posts) do
+      remove :db_v7
+    end
+
     execute("""
     DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'post_views') AND c.name = N'time'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [post_views] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
     """)
@@ -57,5 +77,13 @@ defmodule AshMssql.TestRepo.Migrations.MigrateResources5 do
     execute("""
     DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'posts') AND c.name = N'updated_at'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [posts] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
     """)
+
+    execute("""
+    DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'accounts') AND c.name = N'db_v4'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [accounts] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
+    """)
+
+    alter table(:accounts) do
+      remove :db_v4
+    end
   end
 end

@@ -48,6 +48,20 @@ defmodule AshMssql.MigrationGenerator.Operation do
       |> Enum.map_join(" AND ", fn key -> "[#{key}] IS NOT NULL" end)
     end
 
+    @doc """
+    Renders an `execute` that drops a column's DEFAULT constraint if one
+    exists. The constraint's name isn't knowable (ecto names them
+    DF_<prefix>_<table>_<column>, but hand-written DDL may not), so it is
+    looked up and dropped dynamically.
+    """
+    def drop_default_constraint_statement(table, source) do
+      String.trim("""
+      execute(\"\"\"
+      DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'#{table}') AND c.name = N'#{source}'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [#{table}] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
+      \"\"\")
+      """)
+    end
+
     def on_delete(%{on_delete: on_delete}) when on_delete in [:delete, :nilify] do
       "on_delete: :#{on_delete}_all"
     end
@@ -401,6 +415,8 @@ defmodule AshMssql.MigrationGenerator.Operation do
       no_phase: true
     ]
 
+    import Helper, only: [drop_default_constraint_statement: 2]
+
     def up(%{new_attribute: attribute, table: table}) do
       statements(table, attribute)
     end
@@ -417,18 +433,11 @@ defmodule AshMssql.MigrationGenerator.Operation do
     end
 
     defp statements(table, %{source: source, default: default}) do
-      # The existing constraint's name isn't knowable (ecto names them
-      # DF_<prefix>_<table>_<column>, but hand-written DDL may not), so it
-      # is looked up and dropped dynamically.
-      drop = """
-      execute(\"\"\"
-      DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'#{table}') AND c.name = N'#{source}'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [#{table}] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
-      \"\"\")
-      """
+      drop = drop_default_constraint_statement(table, source)
 
       case default_sql(default) do
         nil ->
-          String.trim(drop)
+          drop
 
         sql ->
           # Named to match ecto's DF_<prefix>_<table>_<column> convention so
@@ -436,7 +445,7 @@ defmodule AshMssql.MigrationGenerator.Operation do
           # Elixir source text (see default_sql/1) and is spliced verbatim,
           # so it compiles in the generated migration exactly as the same
           # default text does on the create-table (`add ... default:`) path.
-          String.trim(drop) <>
+          drop <>
             "\n\nexecute(\"ALTER TABLE [#{table}] ADD CONSTRAINT [DF__#{table}_#{source}] DEFAULT (#{sql}) FOR [#{source}];\")"
       end
     end
@@ -471,6 +480,32 @@ defmodule AshMssql.MigrationGenerator.Operation do
           end
       end
     end
+  end
+
+  defmodule DropDefaultConstraint do
+    @moduledoc false
+    # Paired with adds/removes of defaulted columns by
+    # add_default_constraint_guards/1 in the generator: SQL Server refuses
+    # DROP COLUMN while the column's DEFAULT constraint exists, and ecto's
+    # `remove` renders a bare DROP COLUMN. `direction: :up` precedes a column
+    # removal (drop the constraint before the alter block); `direction: :down`
+    # follows a column add, so rolling the add back drops the constraint
+    # before the reversed alter block removes the column.
+    defstruct [:table, :source, :direction, no_phase: true]
+
+    import Helper, only: [drop_default_constraint_statement: 2]
+
+    def up(%{direction: :up, table: table, source: source}) do
+      drop_default_constraint_statement(table, source)
+    end
+
+    def up(_), do: ""
+
+    def down(%{direction: :down, table: table, source: source}) do
+      drop_default_constraint_statement(table, source)
+    end
+
+    def down(_), do: ""
   end
 
   defmodule DropForeignKey do

@@ -433,8 +433,43 @@ defmodule AshMssql.MigrationGenerator do
     operations
     |> sort_operations()
     |> streamline()
+    |> add_default_constraint_guards()
     |> group_into_phases()
     |> clean_phases()
+  end
+
+  # SQL Server refuses DROP COLUMN while the column's DEFAULT constraint
+  # exists, and ecto's `remove` renders a bare DROP COLUMN. Pair every add or
+  # remove of a defaulted column on an EXISTING table (new tables roll back
+  # with `drop table`) with a no-phase constraint-drop op so the removal
+  # direction — `up` for removes, `down` when rolling back adds — drops the
+  # constraint first.
+  defp add_default_constraint_guards(operations) do
+    creating =
+      operations
+      |> Enum.filter(&match?(%Operation.CreateTable{}, &1))
+      |> MapSet.new(& &1.table)
+
+    Enum.flat_map(operations, fn
+      %Operation.AddAttribute{table: table, attribute: %{default: default, source: source}} = op
+      when default not in [nil, "nil"] ->
+        if MapSet.member?(creating, table) do
+          [op]
+        else
+          [op, %Operation.DropDefaultConstraint{table: table, source: source, direction: :down}]
+        end
+
+      %Operation.RemoveAttribute{
+        table: table,
+        commented?: false,
+        attribute: %{default: default, source: source}
+      } = op
+      when default not in [nil, "nil"] ->
+        [%Operation.DropDefaultConstraint{table: table, source: source, direction: :up}, op]
+
+      op ->
+        [op]
+    end)
   end
 
   defp clean_phases(phases) do
@@ -2456,12 +2491,15 @@ defmodule AshMssql.MigrationGenerator do
     configured_default(resource, name) ||
       cond do
         default in @uuid_functions ->
-          ~S[fragment("NEWID()")]
+          uuid_default_fragment(:v4)
 
         default == (&Ash.UUIDv7.generate/0) ->
-          "fragment(\"#{@uuid_v7_default}\")"
+          uuid_default_fragment(:v7)
 
         default == (&DateTime.utc_now/0) ->
+          ~S[fragment("SYSUTCDATETIME()")]
+
+        default == (&NaiveDateTime.utc_now/0) ->
           ~S[fragment("SYSUTCDATETIME()")]
 
         default == (&Date.utc_today/0) ->
@@ -2482,10 +2520,9 @@ defmodule AshMssql.MigrationGenerator do
   # would be filled client-side and the column DEFAULT would never fire.)
   defp default(%{name: name, default: nil, generated?: true, type: type}, resource, _) do
     configured_default(resource, name) ||
-      case Ash.Type.get_type(type) do
-        Ash.Type.UUID -> ~S[fragment("NEWID()")]
-        Ash.Type.UUIDv7 -> "fragment(\"#{@uuid_v7_default}\")"
-        _ -> "nil"
+      case uuid_kind(type) do
+        nil -> "nil"
+        kind -> uuid_default_fragment(kind)
       end
   end
 
@@ -2531,6 +2568,33 @@ defmodule AshMssql.MigrationGenerator do
 
   defp unwrap_type({:array, type}), do: unwrap_type(type)
   defp unwrap_type(type), do: type
+
+  # The single source of the uuid default SQL for both the function-capture
+  # mapping and the generated?-attribute derivation, so the two column
+  # classes can't drift apart.
+  defp uuid_default_fragment(:v4), do: ~S[fragment("NEWID()")]
+  defp uuid_default_fragment(:v7), do: "fragment(\"#{@uuid_v7_default}\")"
+
+  # Resolves a type (including NewTypes) to the builtin uuid it derives from,
+  # walking the subtype chain — storage_type alone can't distinguish v4 from
+  # v7 (both store as :uuid).
+  defp uuid_kind(type) do
+    type = Ash.Type.get_type(type)
+
+    cond do
+      type == Ash.Type.UUID ->
+        :v4
+
+      type == Ash.Type.UUIDv7 ->
+        :v7
+
+      is_atom(type) and Ash.Type.NewType.new_type?(type) ->
+        uuid_kind(Ash.Type.NewType.subtype_of(type))
+
+      true ->
+        nil
+    end
+  end
 
   defp configured_default(resource, attribute) do
     AshMssql.DataLayer.Info.migration_defaults(resource)[attribute]

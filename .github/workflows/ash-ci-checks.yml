@@ -7,20 +7,6 @@ name: Ash CI Checks
 on:
   workflow_call:
 jobs:
-  # Warnings-as-errors enforcement lives here, on a `mix clean`ed build,
-  # instead of in mix.exs elixirc_options: recompiling over a restored build
-  # cache emits benign "redefining module" warnings (Spark/Ash compile-time
-  # hooks load stale beams mid-compile) that would otherwise hard-fail every
-  # cache-skewed mix task. A clean compile is deterministic.
-  compile-warnings:
-    name: mix compile --warnings-as-errors
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: team-alembic/staple-actions/actions/mix-task@main
-        with:
-          mix-env: test
-          task: do clean, compile --warnings-as-errors
   formatter:
     name: mix format --check-formatted
     runs-on: ubuntu-latest

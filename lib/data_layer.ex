@@ -855,13 +855,40 @@ defmodule AshMssql.DataLayer do
     repo.insert_all(source, entries, opts)
   end
 
-  defp insert_all_returning(source, entries, repo, _resource, action_select, opts) do
+  defp insert_all_returning(source, entries, repo, resource, action_select, opts) do
     # MSSQL supports the OUTPUT clause (the RETURNING-equivalent), which Ecto's
     # Tds adapter exposes via `:returning`. This gives Postgres-parity batch
     # inserts that return the inserted rows directly — including server-generated
     # identity/uuid keys — instead of a fragile SCOPE_IDENTITY()/reload round-trip
     # (SCOPE_IDENTITY() is batch-scoped and would be NULL on a separate query).
-    repo.insert_all(source, entries, Keyword.put(opts, :returning, action_select || true))
+    opts = Keyword.put(opts, :returning, action_select || true)
+
+    if length(entries) > 1 and not alignable_by_pkey?(entries, resource) do
+      # OUTPUT rows are not guaranteed to come back in VALUES order, and
+      # without client-supplied primary keys (identity or database-generated
+      # uuid pks) the rows can't be matched back to their changesets
+      # afterwards. Insert row by row so each OUTPUT row is unambiguously its
+      # entry's record.
+      {count, records} =
+        Enum.reduce(entries, {0, []}, fn entry, {count, acc} ->
+          case repo.insert_all(source, [entry], opts) do
+            {n, [record]} -> {count + n, [record | acc]}
+            {n, _} -> {count + n, acc}
+          end
+        end)
+
+      {count, Enum.reverse(records)}
+    else
+      repo.insert_all(source, entries, opts)
+    end
+  end
+
+  defp alignable_by_pkey?(entries, resource) do
+    pkey = Ash.Resource.Info.primary_key(resource)
+
+    Enum.all?(entries, fn entry ->
+      Enum.all?(pkey, &(not is_nil(Map.get(entry, &1))))
+    end)
   end
 
   # Ecto's Tds adapter only supports `on_conflict: :raise`, so upsert cannot go
