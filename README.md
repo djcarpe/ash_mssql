@@ -9,13 +9,31 @@
 # AshMssql
 
 Welcome! `AshMssql` is a Microsoft SQL Server data layer for [Ash Framework](https://hexdocs.pm/ash),
-built on the `tds` driver (`Ecto.Adapters.Tds`) and derived from
+built on the `tds` driver (via `AshMssql.EctoAdapter`, a thin wrapper around
+`Ecto.Adapters.Tds` that corrects `uniqueidentifier` byte order for `:uuid`
+values) and derived from
 [`AshMysql`](https://hex.pm/packages/ash_mysql). Both sit on the shared
 [`ash_sql`](https://hex.pm/packages/ash_sql) query-building library.
 
 ## Idiosyncrasies and Warnings
 
 - AshMssql is at a very alpha stage of development: expect bugs and problems!
+- **Upgrading across the uuid byte-order fix:** releases before
+  `AshMssql.EctoAdapter` stored `:uuid` values with byte-swapped
+  `uniqueidentifier` internals (the server rendered different GUIDs than the
+  application saw). The adapter now stores and reads the correct native
+  layout, so a database written by an earlier version needs a one-time
+  rewrite of every `uniqueidentifier` column holding Ash-written uuids —
+  otherwise previously issued ids will no longer resolve:
+
+  ```sql
+  UPDATE t SET col = CONVERT(uniqueidentifier,
+    STUFF(STUFF(STUFF(STUFF(LOWER(CONVERT(varchar(32), CONVERT(binary(16), col), 2)),
+      9,0,'-'),14,0,'-'),19,0,'-'),24,0,'-'));
+  ```
+
+  Foreign key columns referencing rewritten keys need the same rewrite (drop
+  or disable the constraints while updating).
 - It is developed against modern SQL Server (2017+/2019/2022). String
   comparison and `like`/`ilike` behaviour depend on the server/column
   collation.

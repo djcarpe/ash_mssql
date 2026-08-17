@@ -293,9 +293,11 @@ defmodule AshMssql.DataLayer do
   use Spark.Dsl.Extension,
     sections: @sections,
     transformers: [
-      AshMssql.Transformers.ValidateReferences,
       AshMssql.Transformers.VerifyRepo,
       AshMssql.Transformers.EnsureTableOrPolymorphic
+    ],
+    verifiers: [
+      AshMssql.Transformers.ValidateReferences
     ]
 
   def migrate(args) do

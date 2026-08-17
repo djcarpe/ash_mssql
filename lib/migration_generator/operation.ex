@@ -230,21 +230,12 @@ defmodule AshMssql.MigrationGenerator.Operation do
     @moduledoc false
     defstruct [:table, :references, :direction, no_phase: true]
 
-    def up(%{direction: :up, table: table, references: %{name: name, deferrable: true}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} DEFERRABLE INITIALLY IMMEDIATE\");"
-    end
-
-    def up(%{direction: :up, table: table, references: %{name: name, deferrable: :initially}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} DEFERRABLE INITIALLY DEFERRED\");"
-    end
-
-    def up(%{direction: :up, table: table, references: %{name: name}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} NOT DEFERRABLE\");"
-    end
-
+    # SQL Server constraints are never deferrable: deferrable references are
+    # rejected at compile time (ValidateReferences), and "make it not
+    # deferrable" is a no-op (postgres emits ALTER CONSTRAINT here). Legacy
+    # snapshots that still carry `deferrable: true` render as no-ops too, so
+    # generating the migration that removes the option always succeeds.
     def up(_), do: ""
-
-    def down(%{direction: :down} = data), do: up(%{data | direction: :up})
     def down(_), do: ""
   end
 
@@ -391,6 +382,94 @@ defmodule AshMssql.MigrationGenerator.Operation do
           old_multitenancy: op.multitenancy,
           multitenancy: op.old_multitenancy
       })
+    end
+  end
+
+  defmodule AlterAttributeDefault do
+    @moduledoc false
+    # Changes ONLY a column's default. Rendered as raw DEFAULT-constraint DDL
+    # (outside any `alter table` block) because ecto's `modify` always emits
+    # `ALTER TABLE .. ALTER COLUMN ..`, which SQL Server rejects for columns
+    # that any constraint or index depends on — notably primary keys, which
+    # is exactly where uuid defaults land.
+    defstruct [
+      :old_attribute,
+      :new_attribute,
+      :table,
+      :multitenancy,
+      :old_multitenancy,
+      no_phase: true
+    ]
+
+    def up(%{new_attribute: attribute, table: table}) do
+      statements(table, attribute)
+    end
+
+    def down(%{old_attribute: attribute, table: table}) do
+      statements(table, attribute)
+    end
+
+    @doc false
+    # A default is renderable here when it is nothing (drop only) or a
+    # fragment/simple literal we can inline into the ADD CONSTRAINT.
+    def renderable_default?(default) do
+      default_sql(default) != :error
+    end
+
+    defp statements(table, %{source: source, default: default}) do
+      # The existing constraint's name isn't knowable (ecto names them
+      # DF_<prefix>_<table>_<column>, but hand-written DDL may not), so it
+      # is looked up and dropped dynamically.
+      drop = """
+      execute(\"\"\"
+      DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'#{table}') AND c.name = N'#{source}'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [#{table}] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
+      \"\"\")
+      """
+
+      case default_sql(default) do
+        nil ->
+          String.trim(drop)
+
+        sql ->
+          # Named to match ecto's DF_<prefix>_<table>_<column> convention so
+          # a later ecto-driven `modify` can find and replace it. `sql` is
+          # Elixir source text (see default_sql/1) and is spliced verbatim,
+          # so it compiles in the generated migration exactly as the same
+          # default text does on the create-table (`add ... default:`) path.
+          String.trim(drop) <>
+            "\n\nexecute(\"ALTER TABLE [#{table}] ADD CONSTRAINT [DF__#{table}_#{source}] DEFAULT (#{sql}) FOR [#{source}];\")"
+      end
+    end
+
+    # Matches exactly `fragment("...")` with a single string-literal argument,
+    # capturing the literal's source text (escapes intact). Anchored full
+    # match: multi-argument fragments, trailing content, or anything else
+    # falls through to :error (and from there back to a plain AlterAttribute).
+    @single_string_fragment ~r/\Afragment\("((?:[^"\\]|\\.)*)"\)\z/
+
+    defp default_sql(default) do
+      cond do
+        default in [nil, "nil"] ->
+          nil
+
+        default == "true" ->
+          "1"
+
+        default == "false" ->
+          "0"
+
+        not is_binary(default) ->
+          :error
+
+        Regex.match?(~r/^-?\d+(\.\d+)?$/, default) ->
+          default
+
+        true ->
+          case Regex.run(@single_string_fragment, default) do
+            [_, source] -> source
+            nil -> :error
+          end
+      end
     end
   end
 
