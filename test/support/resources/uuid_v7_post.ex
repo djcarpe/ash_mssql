@@ -7,8 +7,6 @@ defmodule AshMssql.Test.UuidV7Post do
   mssql do
     table "uuid_v7_posts"
     repo AshMssql.TestRepo
-
-    migration_defaults db_v7: "fragment(\"#{AshMssql.MigrationGenerator.uuid_v7_default_sql()}\")"
   end
 
   actions do
@@ -20,8 +18,9 @@ defmodule AshMssql.Test.UuidV7Post do
     uuid_v7_primary_key(:id)
     attribute(:title, :string, public?: true)
 
-    # Database-generated (no Ash default): filled by the column DEFAULT
-    # configured in migration_defaults above and read back after writes.
+    # Database-generated: `generated?: true` with no Ash default makes the
+    # migration generator emit a uuid-v7 column DEFAULT automatically, and
+    # the value is read back after writes.
     attribute(:db_v7, :uuid_v7, generated?: true, public?: true)
   end
 end

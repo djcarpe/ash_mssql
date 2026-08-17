@@ -16,6 +16,11 @@ Like ash_postgres, generated migrations give uuid primary keys a database-side
 DEFAULT (`NEWID()` for `uuid_primary_key`, a T-SQL RFC 9562 v7 builder for
 `uuid_v7_primary_key`), so rows inserted outside Ash also get ids; Ash itself
 always generates ids client-side.
+For a column the *database* should fill, declare a `:uuid` or `:uuid_v7`
+attribute with `generated?: true` and no default: the migration generator
+emits the matching column DEFAULT automatically and the value is read back
+after writes (an attribute with an Ash `default` is always filled
+client-side, so the column DEFAULT would never fire).
 It sits on the shared `ash_sql` query-building
 library, the same foundation used by `ash_postgres`, so most Ash querying,
 filtering, calculation, aggregate, and relationship features work the same way.

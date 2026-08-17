@@ -2437,10 +2437,12 @@ defmodule AshMssql.MigrationGenerator do
 
   @doc """
   The T-SQL expression used as the database DEFAULT for `uuid_v7` primary
-  keys (see the comment above its definition for how it works).
+  keys and `generated?: true` `uuid_v7` attributes (see the comment above
+  its definition for how it works).
 
-  Useful in `migration_defaults` to give any other column a database-side
-  uuid v7 default, e.g. for a `generated?: true` attribute:
+  Those cases are handled automatically; this is exposed for
+  `migration_defaults` when a column needs a database-side uuid v7 default
+  in some other configuration:
 
       migration_defaults my_column: "fragment(\\"\#{AshMssql.MigrationGenerator.uuid_v7_default_sql()}\\")"
   """
@@ -2462,6 +2464,20 @@ defmodule AshMssql.MigrationGenerator do
 
   defp default(%{name: name, default: {_, _, _}}, resource, _),
     do: configured_default(resource, name) || "nil"
+
+  # A `generated?: true` uuid attribute with no Ash default gets a
+  # database-side generator matching its type — the same convention that
+  # turns generated integer pks into identity columns. (It must have no Ash
+  # default: Ash applies attribute defaults unconditionally, so a default
+  # would be filled client-side and the column DEFAULT would never fire.)
+  defp default(%{name: name, default: nil, generated?: true, type: type}, resource, _) do
+    configured_default(resource, name) ||
+      case Ash.Type.get_type(type) do
+        Ash.Type.UUID -> ~S[fragment("NEWID()")]
+        Ash.Type.UUIDv7 -> "fragment(\"#{@uuid_v7_default}\")"
+        _ -> "nil"
+      end
+  end
 
   defp default(%{name: name, default: nil}, resource, _),
     do: configured_default(resource, name) || "nil"
