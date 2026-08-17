@@ -1,0 +1,65 @@
+{
+  "attributes": [
+    {
+      "default": "fragment(\"NEWID()\")",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": true,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "score",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "resource_id",
+      "references": {
+        "name": "comment_ratings_resource_id_fkey",
+        "table": "comments",
+        "on_update": null,
+        "on_delete": null,
+        "primary_key?": true,
+        "multitenancy": {
+          "global": null,
+          "attribute": null,
+          "strategy": null
+        },
+        "destination_attribute": "id",
+        "deferrable": false,
+        "destination_attribute_default": "fragment(\"NEWID()\")",
+        "destination_attribute_generated": false
+      },
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    }
+  ],
+  "table": "comment_ratings",
+  "hash": "827AFE27CC574D86E2D362F17DE5DB52991C206BE57E0E3008C27A758B68EF40",
+  "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "base_filter": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true
+}

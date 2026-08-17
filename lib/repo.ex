@@ -29,7 +29,7 @@ defmodule AshMssql.Repo do
       otp_app = opts[:otp_app] || raise("Must configure OTP app")
 
       use Ecto.Repo,
-        adapter: Ecto.Adapters.Tds,
+        adapter: AshMssql.EctoAdapter,
         otp_app: otp_app
 
       @behaviour AshMssql.Repo
