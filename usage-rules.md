@@ -12,10 +12,12 @@ Note that SQL Server sorts uniqueidentifiers by their *last* string group
 first, so `uuid_v7` primary keys do not insert sequentially into a clustered
 index the way they do on byte-wise-comparing databases; prefer
 `integer_primary_key` when insert locality matters.
-Like ash_postgres, generated migrations give uuid primary keys a database-side
-DEFAULT (`NEWID()` for `uuid_primary_key`, a T-SQL RFC 9562 v7 builder for
-`uuid_v7_primary_key`), so rows inserted outside Ash also get ids; Ash itself
-always generates ids client-side.
+Like ash_postgres, generated migrations map well-known generator defaults to
+database-side DEFAULTs, so rows inserted outside Ash get the same generated
+values: `NEWID()` for `uuid_primary_key`, a T-SQL RFC 9562 v7 builder for
+`uuid_v7_primary_key`, `SYSUTCDATETIME()` for `&DateTime.utc_now/0`
+(timestamps), and `CAST(SYSUTCDATETIME() AS date)` for `&Date.utc_today/0`;
+Ash itself always applies these defaults client-side on its own writes.
 For a column the *database* should fill, declare a `:uuid` or `:uuid_v7`
 attribute with `generated?: true` and no default: the migration generator
 emits the matching column DEFAULT automatically and the value is read back

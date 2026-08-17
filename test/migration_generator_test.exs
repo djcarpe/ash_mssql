@@ -915,6 +915,59 @@ defmodule AshMssql.MigrationGeneratorTest do
       assert file =~
                ~S[add :product_code, :binary]
     end
+
+    # The well-known generator functions map to database-side defaults by
+    # function-capture identity (ash_postgres parity), and generated?: true
+    # uuid attributes derive theirs from the attribute type.
+    test "well-known generator function defaults become database defaults" do
+      defposts do
+        attributes do
+          uuid_primary_key(:id)
+          attribute(:ash_v4, :uuid, default: &Ash.UUID.generate/0)
+          attribute(:ecto_v4, :uuid, default: &Ecto.UUID.generate/0)
+          attribute(:v7, :uuid_v7, default: &Ash.UUIDv7.generate/0)
+          attribute(:published_on, :date, default: &Date.utc_today/0)
+          attribute(:custom, :string, default: fn -> "x" end)
+          attribute(:db_v4, :uuid, generated?: true)
+          attribute(:db_v7, :uuid_v7, generated?: true)
+          create_timestamp(:created_at)
+        end
+      end
+
+      defdomain([Post])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false
+      )
+
+      assert [file1] = Path.wildcard("test_migration_path/**/*_migrate_resources*.exs")
+      file = File.read!(file1)
+
+      v7_sql = AshMssql.MigrationGenerator.uuid_v7_default_sql()
+
+      # uuid v4, from either known capture, and from generated?: true
+      assert file =~ ~S[add :id, :uuid, null: false, default: fragment("NEWID()")]
+      assert file =~ ~S[add :ash_v4, :uuid, default: fragment("NEWID()")]
+      assert file =~ ~S[add :ecto_v4, :uuid, default: fragment("NEWID()")]
+      assert file =~ ~S[add :db_v4, :uuid, default: fragment("NEWID()")]
+
+      # uuid v7, from the known capture and from generated?: true
+      assert file =~ "add :v7, :uuid, default: fragment(\"#{v7_sql}\")"
+      assert file =~ "add :db_v7, :uuid, default: fragment(\"#{v7_sql}\")"
+
+      # timestamps and dates
+      assert file =~
+               ~S[add :created_at, :utc_datetime_usec, null: false, default: fragment("SYSUTCDATETIME()")]
+
+      assert file =~
+               ~S[add :published_on, :date, default: fragment("CAST(SYSUTCDATETIME() AS date)")]
+
+      # unknown functions get no database default
+      assert file =~ ~r/add :custom, :string\n/
+    end
   end
 
   describe "follow up with references" do

@@ -118,6 +118,23 @@ defmodule AshMssql.Test.DbGeneratedUuidTest do
     end
   end
 
+  # &DateTime.utc_now/0 defaults map to DEFAULT SYSUTCDATETIME() (the
+  # ash_postgres now()/CURRENT_DATE parity), so a raw-SQL insert supplying
+  # nothing but data columns gets its id AND timestamps from the database.
+  test "raw inserts get database-generated timestamps alongside the id" do
+    %{rows: [[id, created_at, updated_at, server_now]]} =
+      TestRepo.query!("""
+      INSERT INTO posts (title, type)
+      OUTPUT CONVERT(nvarchar(36), INSERTED.id), INSERTED.created_at,
+             INSERTED.updated_at, SYSUTCDATETIME()
+      VALUES ('db-generated-timestamps', 'sponsored')
+      """)
+
+    assert String.downcase(id) =~ @v4
+    assert NaiveDateTime.diff(server_now, created_at, :second) in 0..5
+    assert NaiveDateTime.diff(server_now, updated_at, :second) in 0..5
+  end
+
   test "Ash creates still generate ids client-side (default does not interfere)" do
     post =
       UuidV7Post
