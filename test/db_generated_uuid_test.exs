@@ -10,6 +10,8 @@ defmodule AshMssql.Test.DbGeneratedUuidTest do
   use AshMssql.RepoCase, async: false
   alias AshMssql.Test.{Account, UuidV7Post}
 
+  require Ash.Query
+
   @v4 AshMssql.Test.UuidPatterns.v4()
   @v7 AshMssql.Test.UuidPatterns.v7()
 
@@ -61,6 +63,59 @@ defmodule AshMssql.Test.DbGeneratedUuidTest do
 
     assert length(Enum.uniq(ids)) == 5
     assert Enum.all?(ids, &(&1 =~ @v7))
+  end
+
+  describe "generated?: true uuid attributes" do
+    # These attributes have NO Ash default: the value comes from the column
+    # DEFAULT (via migration_defaults) and is read back after the write.
+    # Beyond shape, each test pins byte order: the server-side string form
+    # must equal the application-side uuid, and the value must be filterable
+    # back through Ash (the dump path must agree with the stored bytes).
+    test "the database fills a generated?: true :uuid attribute on Ash create" do
+      account =
+        Account |> Ash.Changeset.for_create(:create, %{is_active: true}) |> Ash.create!()
+
+      assert account.db_v4 =~ @v4
+
+      %{rows: [[server_string]]} =
+        TestRepo.query!(
+          "SELECT CONVERT(nvarchar(36), db_v4) FROM accounts WHERE id = CONVERT(uniqueidentifier, @1)",
+          [account.id]
+        )
+
+      assert String.downcase(server_string) == account.db_v4
+
+      assert [%{id: id}] =
+               Account
+               |> Ash.Query.filter(db_v4 == ^account.db_v4)
+               |> Ash.read!()
+
+      assert id == account.id
+    end
+
+    test "the database fills a generated?: true :uuid_v7 attribute on Ash create" do
+      post =
+        UuidV7Post
+        |> Ash.Changeset.for_create(:create, %{title: "db-generated-column"})
+        |> Ash.create!()
+
+      assert post.db_v7 =~ @v7
+
+      %{rows: [[server_string]]} =
+        TestRepo.query!(
+          "SELECT CONVERT(nvarchar(36), db_v7) FROM uuid_v7_posts WHERE id = CONVERT(uniqueidentifier, @1)",
+          [post.id]
+        )
+
+      assert String.downcase(server_string) == post.db_v7
+
+      assert [%{id: id}] =
+               UuidV7Post
+               |> Ash.Query.filter(db_v7 == ^post.db_v7)
+               |> Ash.read!()
+
+      assert id == post.id
+    end
   end
 
   test "Ash creates still generate ids client-side (default does not interfere)" do

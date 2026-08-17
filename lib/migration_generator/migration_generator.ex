@@ -2435,6 +2435,17 @@ defmodule AshMssql.MigrationGenerator do
   # stored value string-faithful, in the same layout the adapter writes.
   @uuid_v7_default ~S{CONVERT(uniqueidentifier, STUFF(STUFF(LOWER(CONVERT(char(36), NEWID())), 1, 13, STUFF(CONVERT(varchar(12), CONVERT(binary(6), DATEDIFF_BIG(millisecond, '1970-01-01', SYSUTCDATETIME())), 2), 9, 0, '-')), 15, 1, '7'))}
 
+  @doc """
+  The T-SQL expression used as the database DEFAULT for `uuid_v7` primary
+  keys (see the comment above its definition for how it works).
+
+  Useful in `migration_defaults` to give any other column a database-side
+  uuid v7 default, e.g. for a `generated?: true` attribute:
+
+      migration_defaults my_column: "fragment(\\"\#{AshMssql.MigrationGenerator.uuid_v7_default_sql()}\\")"
+  """
+  def uuid_v7_default_sql, do: @uuid_v7_default
+
   defp default(%{name: name, default: default}, resource, _repo) when is_function(default) do
     configured_default(resource, name) ||
       cond do

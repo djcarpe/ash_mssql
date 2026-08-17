@@ -10,6 +10,10 @@ defmodule AshMssql.Test.Account do
   attributes do
     uuid_primary_key(:id)
     attribute(:is_active, :boolean, public?: true)
+
+    # Database-generated (no Ash default): filled by the column DEFAULT
+    # configured in migration_defaults below and read back after writes.
+    attribute(:db_v4, :uuid, generated?: true, public?: true)
   end
 
   calculations do
@@ -24,6 +28,8 @@ defmodule AshMssql.Test.Account do
   mssql do
     table "accounts"
     repo(AshMssql.TestRepo)
+
+    migration_defaults db_v4: "fragment(\"NEWID()\")"
   end
 
   relationships do
