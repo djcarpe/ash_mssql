@@ -92,12 +92,14 @@ defmodule AshMssql.EctoAdapter do
   # Tds.Ecto.UUID's own dump/load already use SQL Server's native byte order
   # (and its primitive type is :uuid), so it must bypass the swap — otherwise
   # a plain ecto schema using it on this repo would be double-swapped.
-  def loaders(:uuid, Tds.Ecto.UUID = type), do: [type]
+  # Elixir-prefixed because `alias Ecto.Adapters.Tds` above would otherwise
+  # resolve this to the nonexistent Ecto.Adapters.Tds.Ecto.UUID.
+  def loaders(:uuid, Elixir.Tds.Ecto.UUID = type), do: [type]
   def loaders(:uuid, type), do: [&load_uuid/1, type]
   def loaders(primitive, type), do: Tds.loaders(primitive, type)
 
   @impl Ecto.Adapter
-  def dumpers(:uuid, Tds.Ecto.UUID = type), do: [type]
+  def dumpers(:uuid, Elixir.Tds.Ecto.UUID = type), do: [type]
   def dumpers(:uuid, type), do: [type, &dump_uuid/1]
   def dumpers(primitive, type), do: Tds.dumpers(primitive, type)
 
