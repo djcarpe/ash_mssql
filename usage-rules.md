@@ -17,10 +17,13 @@ database-side DEFAULTs, so rows inserted outside Ash get the same generated
 values: `NEWID()` for `uuid_primary_key`, a T-SQL RFC 9562 v7 builder for
 `uuid_v7_primary_key`, `SYSUTCDATETIME()` for `&DateTime.utc_now/0` and
 `&NaiveDateTime.utc_now/0` (timestamps), and `CAST(SYSUTCDATETIME() AS date)`
-for `&Date.utc_today/0`; Ash itself always applies these defaults client-side
-on its own writes. Note these DEFAULTs fire only on INSERT — SQL Server has
-no ON UPDATE mechanism, so updates made outside Ash must set `updated_at`
-themselves (Ash sets it client-side on its own updates).
+for `&Date.utc_today/0`. For attributes carrying one of these Ash defaults,
+Ash fills the value client-side on its own writes, so their column DEFAULTs
+only fire for rows written outside Ash — whereas `generated?: true`
+attributes (below) have no Ash default and are filled by the database on
+every insert, Ash's included. Note these DEFAULTs fire only on INSERT — SQL
+Server has no ON UPDATE mechanism, so updates made outside Ash must set
+`updated_at` themselves (Ash sets it client-side on its own updates).
 For a column the *database* should fill, declare a `:uuid` or `:uuid_v7`
 attribute with `generated?: true` and no default: the migration generator
 emits the matching column DEFAULT automatically and the value is read back

@@ -2485,8 +2485,10 @@ defmodule AshMssql.MigrationGenerator do
 
   # Well-known generator functions map to equivalent database-side defaults
   # (matched by function-capture identity, like ash_postgres): rows written
-  # outside Ash get the same generated values. Ash itself always applies
-  # these defaults client-side on its own writes.
+  # outside Ash get the same generated values. Attributes with these Ash
+  # defaults are filled client-side by Ash on its own writes, so the column
+  # DEFAULT is a safety net for non-Ash writers only — unlike the
+  # generated?: true clause below, where the database fills every insert.
   defp default(%{name: name, default: default}, resource, _repo) when is_function(default) do
     configured_default(resource, name) ||
       cond do
