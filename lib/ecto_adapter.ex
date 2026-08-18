@@ -96,6 +96,7 @@ defmodule AshMssql.EctoAdapter do
   # resolve this to the nonexistent Ecto.Adapters.Tds.Ecto.UUID.
   def loaders(:uuid, Elixir.Tds.Ecto.UUID = type), do: [type]
   def loaders(:uuid, type), do: [&load_uuid/1, type]
+  def loaders(:boolean, type), do: [&load_boolean/1, type]
   def loaders(primitive, type), do: Tds.loaders(primitive, type)
 
   @impl Ecto.Adapter
@@ -118,6 +119,19 @@ defmodule AshMssql.EctoAdapter do
   defp swap_uuid(<<a::32, b::16, c::16, rest::binary-size(8)>>) do
     <<a::little-32, b::little-16, c::little-16, rest::binary>>
   end
+
+  # SQL Server has no boolean expression type: BIT columns arrive as booleans
+  # from the driver, but INT-shaped boolean expressions can surface any
+  # integer. Tds's own bool_decode only maps 0/1 and passes other values
+  # through (which the boolean type then refuses to load). Mirror SQL
+  # Server's CAST(x AS bit) semantics instead — zero is false, any other
+  # number is true — so booleans always normalize on read.
+  defp load_boolean(value) when is_boolean(value), do: {:ok, value}
+  defp load_boolean(0), do: {:ok, false}
+  defp load_boolean(<<0>>), do: {:ok, false}
+  defp load_boolean(n) when is_integer(n), do: {:ok, true}
+  defp load_boolean(<<_>>), do: {:ok, true}
+  defp load_boolean(value), do: {:ok, value}
 
   @impl Ecto.Adapter.Queryable
   defdelegate prepare(operation, query), to: Tds

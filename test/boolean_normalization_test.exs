@@ -65,4 +65,59 @@ defmodule AshMssql.BooleanNormalizationTest do
 
     assert value === true
   end
+
+  describe "non-0/1 values" do
+    test "writing 2 into a BIT column stores (and reads back) true" do
+      account =
+        Account |> Ash.Changeset.for_create(:create, %{is_active: false}) |> Ash.create!()
+
+      # SQL Server itself coerces any nonzero to 1 in BIT columns.
+      TestRepo.query!(
+        "UPDATE accounts SET is_active = 2 WHERE id = CONVERT(uniqueidentifier, @1)",
+        [account.id]
+      )
+
+      assert Ash.get!(Account, account.id).is_active === true
+    end
+
+    test "a boolean-typed select of an INT expression evaluating to 2 loads as true" do
+      account =
+        Account |> Ash.Changeset.for_create(:create, %{is_active: true}) |> Ash.create!()
+
+      ptype = Ecto.ParameterizedType.init(Ash.Type.ecto_type(Ash.Type.Boolean), [])
+
+      # Ecto wraps the typed select in CAST(... AS bit) server-side; this
+      # pins that the whole path yields a real boolean.
+      assert [true] =
+               TestRepo.all(
+                 from(a in Account,
+                   where: a.id == ^account.id,
+                   select: type(fragment("CAST(2 AS INT)"), ^ptype)
+                 )
+               )
+    end
+
+    test "the adapter's boolean loader normalizes any integer, matching CAST(x AS bit)" do
+      ptype = Ecto.ParameterizedType.init(Ash.Type.ecto_type(Ash.Type.Boolean), [])
+
+      for {input, expected} <- [
+            {true, true},
+            {false, false},
+            {0, false},
+            {1, true},
+            {2, true},
+            {-1, true},
+            {<<0>>, false},
+            {<<1>>, true},
+            {<<2>>, true}
+          ] do
+        assert {:ok, ^expected} =
+                 Ecto.Type.adapter_load(AshMssql.EctoAdapter, ptype, input)
+
+        assert {:ok, ^expected} = Ecto.Type.adapter_load(AshMssql.EctoAdapter, :boolean, input)
+      end
+
+      assert {:ok, nil} = Ecto.Type.adapter_load(AshMssql.EctoAdapter, ptype, nil)
+    end
+  end
 end
