@@ -29,6 +29,26 @@ jobs:
       - uses: team-alembic/staple-actions/actions/mix-task@main
         with:
           task: deps.audit
+  # Warnings-as-errors enforcement, on a `mix clean`ed build, instead of in
+  # mix.exs elixirc_options: recompiling over a restored build cache emits
+  # benign "redefining module" warnings (Spark/Ash compile-time hooks load
+  # stale beams mid-compile) that would otherwise hard-fail every cache-skewed
+  # mix task. A clean compile is deterministic. Runs for both envs (their
+  # elixirc_paths differ) and doesn't wait on build-test — it discards the
+  # project build anyway, reusing only the deps cache.
+  compile-warnings:
+    strategy:
+      fail-fast: false
+      matrix:
+        mix-env: [test, dev]
+    name: mix compile --warnings-as-errors (${{ matrix.mix-env }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: team-alembic/staple-actions/actions/mix-task@main
+        with:
+          mix-env: ${{ matrix.mix-env }}
+          task: do clean, compile --warnings-as-errors
   # Version-independent test-env jobs (format/credo/sobelow/etc.) run exactly
   # once, after build-test.
   checks:
@@ -53,6 +73,7 @@ jobs:
     name: Release
     needs:
       - auditor
+      - compile-warnings
       - checks
       - dev
       - test

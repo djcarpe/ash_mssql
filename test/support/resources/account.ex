@@ -10,6 +10,11 @@ defmodule AshMssql.Test.Account do
   attributes do
     uuid_primary_key(:id)
     attribute(:is_active, :boolean, public?: true)
+
+    # Database-generated: `generated?: true` with no Ash default makes the
+    # migration generator emit a NEWID() column DEFAULT automatically, and
+    # the value is read back after writes.
+    attribute(:db_v4, :uuid, generated?: true, public?: true)
   end
 
   calculations do

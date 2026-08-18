@@ -433,8 +433,43 @@ defmodule AshMssql.MigrationGenerator do
     operations
     |> sort_operations()
     |> streamline()
+    |> add_default_constraint_guards()
     |> group_into_phases()
     |> clean_phases()
+  end
+
+  # SQL Server refuses DROP COLUMN while the column's DEFAULT constraint
+  # exists, and ecto's `remove` renders a bare DROP COLUMN. Pair every add or
+  # remove of a defaulted column on an EXISTING table (new tables roll back
+  # with `drop table`) with a no-phase constraint-drop op so the removal
+  # direction — `up` for removes, `down` when rolling back adds — drops the
+  # constraint first.
+  defp add_default_constraint_guards(operations) do
+    creating =
+      operations
+      |> Enum.filter(&match?(%Operation.CreateTable{}, &1))
+      |> MapSet.new(& &1.table)
+
+    Enum.flat_map(operations, fn
+      %Operation.AddAttribute{table: table, attribute: %{default: default, source: source}} = op
+      when default not in [nil, "nil"] ->
+        if MapSet.member?(creating, table) do
+          [op]
+        else
+          [op, %Operation.DropDefaultConstraint{table: table, source: source, direction: :down}]
+        end
+
+      %Operation.RemoveAttribute{
+        table: table,
+        commented?: false,
+        attribute: %{default: default, source: source}
+      } = op
+      when default not in [nil, "nil"] ->
+        [%Operation.DropDefaultConstraint{table: table, source: source, direction: :up}, op]
+
+      op ->
+        [op]
+    end)
   end
 
   defp clean_phases(phases) do
@@ -1799,13 +1834,31 @@ defmodule AshMssql.MigrationGenerator do
             old_and_alter
           end
         else
-          [
-            %Operation.AlterAttribute{
-              new_attribute: Map.delete(new_attribute, :references),
-              old_attribute: Map.delete(old_attribute, :references),
-              table: snapshot.table
-            }
-          ]
+          new_attribute = Map.delete(new_attribute, :references)
+          old_attribute = Map.delete(old_attribute, :references)
+
+          # A default-only change is emitted as DEFAULT-constraint DDL rather
+          # than `modify`: ecto's modify always ALTER COLUMNs, which SQL
+          # Server rejects on constrained columns (e.g. primary keys).
+          if default_only_change?(new_attribute, old_attribute) and
+               Operation.AlterAttributeDefault.renderable_default?(new_attribute.default) and
+               Operation.AlterAttributeDefault.renderable_default?(old_attribute.default) do
+            [
+              %Operation.AlterAttributeDefault{
+                new_attribute: new_attribute,
+                old_attribute: old_attribute,
+                table: snapshot.table
+              }
+            ]
+          else
+            [
+              %Operation.AlterAttribute{
+                new_attribute: new_attribute,
+                old_attribute: old_attribute,
+                table: snapshot.table
+              }
+            ]
+          end
         end
         |> Enum.concat(deferrable_ops)
       end)
@@ -1821,6 +1874,11 @@ defmodule AshMssql.MigrationGenerator do
 
     add_attribute_events ++
       alter_attribute_events ++ remove_attribute_events ++ rename_attribute_events
+  end
+
+  defp default_only_change?(new_attribute, old_attribute) do
+    new_attribute.default != old_attribute.default and
+      Map.delete(new_attribute, :default) == Map.delete(old_attribute, :default)
   end
 
   defp differently_deferrable?(%{references: %{deferrable: left}}, %{
@@ -2401,12 +2459,74 @@ defmodule AshMssql.MigrationGenerator do
     |> Enum.map(&Map.put(&1, :base_filter, AshMssql.DataLayer.Info.base_filter_sql(resource)))
   end
 
+  @uuid_functions [&Ash.UUID.generate/0, &Ecto.UUID.generate/0]
+
+  # SQL Server has no built-in uuid v7 generator, so the default builds one:
+  # take a NEWID() (random v4), overwrite the first 12 hex chars of its string
+  # form with the 48-bit unix-millisecond timestamp, and force the version
+  # nibble to 7. The v4's variant nibble is already valid for v7 and its
+  # remaining 74 random bits become rand_a/rand_b, matching RFC 9562.
+  # Building via the string form (rather than binary concatenation) keeps the
+  # stored value string-faithful, in the same layout the adapter writes.
+  @uuid_v7_default ~S{CONVERT(uniqueidentifier, STUFF(STUFF(LOWER(CONVERT(char(36), NEWID())), 1, 13, STUFF(CONVERT(varchar(12), CONVERT(binary(6), DATEDIFF_BIG(millisecond, '1970-01-01', SYSUTCDATETIME())), 2), 9, 0, '-')), 15, 1, '7'))}
+
+  @doc """
+  The T-SQL expression used as the database DEFAULT for `uuid_v7` primary
+  keys and `generated?: true` `uuid_v7` attributes (see the comment above
+  its definition for how it works).
+
+  Those cases are handled automatically; this is exposed for
+  `migration_defaults` when a column needs a database-side uuid v7 default
+  in some other configuration:
+
+      migration_defaults my_column: "fragment(\\"\#{AshMssql.MigrationGenerator.uuid_v7_default_sql()}\\")"
+  """
+  def uuid_v7_default_sql, do: @uuid_v7_default
+
+  # Well-known generator functions map to equivalent database-side defaults
+  # (matched by function-capture identity, like ash_postgres): rows written
+  # outside Ash get the same generated values. Attributes with these Ash
+  # defaults are filled client-side by Ash on its own writes, so the column
+  # DEFAULT is a safety net for non-Ash writers only — unlike the
+  # generated?: true clause below, where the database fills every insert.
   defp default(%{name: name, default: default}, resource, _repo) when is_function(default) do
-    configured_default(resource, name) || "nil"
+    configured_default(resource, name) ||
+      cond do
+        default in @uuid_functions ->
+          uuid_default_fragment(:v4)
+
+        default == (&Ash.UUIDv7.generate/0) ->
+          uuid_default_fragment(:v7)
+
+        default == (&DateTime.utc_now/0) ->
+          ~S[fragment("SYSUTCDATETIME()")]
+
+        default == (&NaiveDateTime.utc_now/0) ->
+          ~S[fragment("SYSUTCDATETIME()")]
+
+        default == (&Date.utc_today/0) ->
+          ~S[fragment("CAST(SYSUTCDATETIME() AS date)")]
+
+        true ->
+          "nil"
+      end
   end
 
   defp default(%{name: name, default: {_, _, _}}, resource, _),
     do: configured_default(resource, name) || "nil"
+
+  # A `generated?: true` uuid attribute with no Ash default gets a
+  # database-side generator matching its type — the same convention that
+  # turns generated integer pks into identity columns. (It must have no Ash
+  # default: Ash applies attribute defaults unconditionally, so a default
+  # would be filled client-side and the column DEFAULT would never fire.)
+  defp default(%{name: name, default: nil, generated?: true, type: type}, resource, _) do
+    configured_default(resource, name) ||
+      case uuid_kind(type) do
+        nil -> "nil"
+        kind -> uuid_default_fragment(kind)
+      end
+  end
 
   defp default(%{name: name, default: nil}, resource, _),
     do: configured_default(resource, name) || "nil"
@@ -2450,6 +2570,33 @@ defmodule AshMssql.MigrationGenerator do
 
   defp unwrap_type({:array, type}), do: unwrap_type(type)
   defp unwrap_type(type), do: type
+
+  # The single source of the uuid default SQL for both the function-capture
+  # mapping and the generated?-attribute derivation, so the two column
+  # classes can't drift apart.
+  defp uuid_default_fragment(:v4), do: ~S[fragment("NEWID()")]
+  defp uuid_default_fragment(:v7), do: "fragment(\"#{@uuid_v7_default}\")"
+
+  # Resolves a type (including NewTypes) to the builtin uuid it derives from,
+  # walking the subtype chain — storage_type alone can't distinguish v4 from
+  # v7 (both store as :uuid).
+  defp uuid_kind(type) do
+    type = Ash.Type.get_type(type)
+
+    cond do
+      type == Ash.Type.UUID ->
+        :v4
+
+      type == Ash.Type.UUIDv7 ->
+        :v7
+
+      is_atom(type) and Ash.Type.NewType.new_type?(type) ->
+        uuid_kind(Ash.Type.NewType.subtype_of(type))
+
+      true ->
+        nil
+    end
+  end
 
   defp configured_default(resource, attribute) do
     AshMssql.DataLayer.Info.migration_defaults(resource)[attribute]

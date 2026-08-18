@@ -13,7 +13,11 @@ defmodule AshMssql.MixProject do
       version: @version,
       elixir: "~> 1.11",
       start_permanent: Mix.env() == :prod,
-      elixirc_options: [warnings_as_errors: true],
+      # warnings-as-errors is enforced by a dedicated clean-compile CI job
+      # (see ash-ci-checks.yml) rather than globally: incremental compiles
+      # against a restored build cache can emit benign "redefining module"
+      # warnings (Spark/Ash compile-time hooks load stale beams mid-compile),
+      # which a global setting turns into hard failures for every mix task.
       deps: deps(),
       description: @description,
       elixirc_paths: elixirc_paths(Mix.env()),

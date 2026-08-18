@@ -3,7 +3,33 @@
 ## Understanding AshMssql
 
 AshMssql is the Microsoft SQL Server data layer for Ash Framework, built on the
-`tds` driver (`Ecto.Adapters.Tds`). It sits on the shared `ash_sql` query-building
+`tds` driver via `AshMssql.EctoAdapter`, a thin wrapper around `Ecto.Adapters.Tds`
+that stores `:uuid` values (e.g. `Ash.Type.UUID`, `Ash.Type.UUIDv7`) in SQL
+Server's native `uniqueidentifier` byte order, so ids render and compare the
+same in the application, the database, and any other client of the same
+database. Repos must use `use AshMssql.Repo`, which selects this adapter.
+Note that SQL Server sorts uniqueidentifiers by their *last* string group
+first, so `uuid_v7` primary keys do not insert sequentially into a clustered
+index the way they do on byte-wise-comparing databases; prefer
+`integer_primary_key` when insert locality matters.
+Like ash_postgres, generated migrations map well-known generator defaults to
+database-side DEFAULTs, so rows inserted outside Ash get the same generated
+values: `NEWID()` for `uuid_primary_key`, a T-SQL RFC 9562 v7 builder for
+`uuid_v7_primary_key`, `SYSUTCDATETIME()` for `&DateTime.utc_now/0` and
+`&NaiveDateTime.utc_now/0` (timestamps), and `CAST(SYSUTCDATETIME() AS date)`
+for `&Date.utc_today/0`. For attributes carrying one of these Ash defaults,
+Ash fills the value client-side on its own writes, so their column DEFAULTs
+only fire for rows written outside Ash — whereas `generated?: true`
+attributes (below) have no Ash default and are filled by the database on
+every insert, Ash's included. Note these DEFAULTs fire only on INSERT — SQL
+Server has no ON UPDATE mechanism, so updates made outside Ash must set
+`updated_at` themselves (Ash sets it client-side on its own updates).
+For a column the *database* should fill, declare a `:uuid` or `:uuid_v7`
+attribute with `generated?: true` and no default: the migration generator
+emits the matching column DEFAULT automatically and the value is read back
+after writes (an attribute with an Ash `default` is always filled
+client-side, so the column DEFAULT would never fire).
+It sits on the shared `ash_sql` query-building
 library, the same foundation used by `ash_postgres`, so most Ash querying,
 filtering, calculation, aggregate, and relationship features work the same way.
 

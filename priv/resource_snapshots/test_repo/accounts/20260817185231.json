@@ -1,0 +1,76 @@
+{
+  "attributes": [
+    {
+      "default": "fragment(\"NEWID()\")",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": true,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "boolean",
+      "source": "is_active",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "fragment(\"NEWID()\")",
+      "size": null,
+      "type": "uuid",
+      "source": "db_v4",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": true,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "user_id",
+      "references": {
+        "name": "accounts_user_id_fkey",
+        "table": "users",
+        "on_update": null,
+        "on_delete": null,
+        "primary_key?": true,
+        "multitenancy": {
+          "global": null,
+          "attribute": null,
+          "strategy": null
+        },
+        "destination_attribute": "id",
+        "deferrable": false,
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null
+      },
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    }
+  ],
+  "table": "accounts",
+  "hash": "5324F8CB5ECF5E4AE7FC564D251FE49158B20D444E4D75224DAFF1C3DFC07B9B",
+  "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "base_filter": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true
+}

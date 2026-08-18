@@ -1,0 +1,50 @@
+{
+  "attributes": [
+    {
+      "default": "fragment(\"SYSUTCDATETIME()\")",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "time",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "string",
+      "source": "browser",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "post_id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    }
+  ],
+  "table": "post_views",
+  "hash": "2A069C5ECE5E18CD44B96935D15550E10AE0B8175D17792589B73FAB27ECEC7E",
+  "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "base_filter": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true
+}

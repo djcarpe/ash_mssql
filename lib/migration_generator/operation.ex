@@ -48,6 +48,20 @@ defmodule AshMssql.MigrationGenerator.Operation do
       |> Enum.map_join(" AND ", fn key -> "[#{key}] IS NOT NULL" end)
     end
 
+    @doc """
+    Renders an `execute` that drops a column's DEFAULT constraint if one
+    exists. The constraint's name isn't knowable (ecto names them
+    DF_<prefix>_<table>_<column>, but hand-written DDL may not), so it is
+    looked up and dropped dynamically.
+    """
+    def drop_default_constraint_statement(table, source) do
+      String.trim("""
+      execute(\"\"\"
+      DECLARE @df sysname, @sql nvarchar(max); SELECT @df = d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N'#{table}') AND c.name = N'#{source}'; IF @df IS NOT NULL BEGIN SET @sql = N'ALTER TABLE [#{table}] DROP CONSTRAINT ' + QUOTENAME(@df); EXEC(@sql); END;
+      \"\"\")
+      """)
+    end
+
     def on_delete(%{on_delete: on_delete}) when on_delete in [:delete, :nilify] do
       "on_delete: :#{on_delete}_all"
     end
@@ -230,21 +244,12 @@ defmodule AshMssql.MigrationGenerator.Operation do
     @moduledoc false
     defstruct [:table, :references, :direction, no_phase: true]
 
-    def up(%{direction: :up, table: table, references: %{name: name, deferrable: true}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} DEFERRABLE INITIALLY IMMEDIATE\");"
-    end
-
-    def up(%{direction: :up, table: table, references: %{name: name, deferrable: :initially}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} DEFERRABLE INITIALLY DEFERRED\");"
-    end
-
-    def up(%{direction: :up, table: table, references: %{name: name}}) do
-      "execute(\"ALTER TABLE #{table} alter CONSTRAINT #{name} NOT DEFERRABLE\");"
-    end
-
+    # SQL Server constraints are never deferrable: deferrable references are
+    # rejected at compile time (ValidateReferences), and "make it not
+    # deferrable" is a no-op (postgres emits ALTER CONSTRAINT here). Legacy
+    # snapshots that still carry `deferrable: true` render as no-ops too, so
+    # generating the migration that removes the option always succeeds.
     def up(_), do: ""
-
-    def down(%{direction: :down} = data), do: up(%{data | direction: :up})
     def down(_), do: ""
   end
 
@@ -392,6 +397,115 @@ defmodule AshMssql.MigrationGenerator.Operation do
           multitenancy: op.old_multitenancy
       })
     end
+  end
+
+  defmodule AlterAttributeDefault do
+    @moduledoc false
+    # Changes ONLY a column's default. Rendered as raw DEFAULT-constraint DDL
+    # (outside any `alter table` block) because ecto's `modify` always emits
+    # `ALTER TABLE .. ALTER COLUMN ..`, which SQL Server rejects for columns
+    # that any constraint or index depends on — notably primary keys, which
+    # is exactly where uuid defaults land.
+    defstruct [
+      :old_attribute,
+      :new_attribute,
+      :table,
+      :multitenancy,
+      :old_multitenancy,
+      no_phase: true
+    ]
+
+    import Helper, only: [drop_default_constraint_statement: 2]
+
+    def up(%{new_attribute: attribute, table: table}) do
+      statements(table, attribute)
+    end
+
+    def down(%{old_attribute: attribute, table: table}) do
+      statements(table, attribute)
+    end
+
+    @doc false
+    # A default is renderable here when it is nothing (drop only) or a
+    # fragment/simple literal we can inline into the ADD CONSTRAINT.
+    def renderable_default?(default) do
+      default_sql(default) != :error
+    end
+
+    defp statements(table, %{source: source, default: default}) do
+      drop = drop_default_constraint_statement(table, source)
+
+      case default_sql(default) do
+        nil ->
+          drop
+
+        sql ->
+          # Named to match ecto's DF_<prefix>_<table>_<column> convention so
+          # a later ecto-driven `modify` can find and replace it. `sql` is
+          # Elixir source text (see default_sql/1) and is spliced verbatim,
+          # so it compiles in the generated migration exactly as the same
+          # default text does on the create-table (`add ... default:`) path.
+          drop <>
+            "\n\nexecute(\"ALTER TABLE [#{table}] ADD CONSTRAINT [DF__#{table}_#{source}] DEFAULT (#{sql}) FOR [#{source}];\")"
+      end
+    end
+
+    # Matches exactly `fragment("...")` with a single string-literal argument,
+    # capturing the literal's source text (escapes intact). Anchored full
+    # match: multi-argument fragments, trailing content, or anything else
+    # falls through to :error (and from there back to a plain AlterAttribute).
+    @single_string_fragment ~r/\Afragment\("((?:[^"\\]|\\.)*)"\)\z/
+
+    defp default_sql(default) do
+      cond do
+        default in [nil, "nil"] ->
+          nil
+
+        default == "true" ->
+          "1"
+
+        default == "false" ->
+          "0"
+
+        not is_binary(default) ->
+          :error
+
+        Regex.match?(~r/^-?\d+(\.\d+)?$/, default) ->
+          default
+
+        true ->
+          case Regex.run(@single_string_fragment, default) do
+            [_, source] -> source
+            nil -> :error
+          end
+      end
+    end
+  end
+
+  defmodule DropDefaultConstraint do
+    @moduledoc false
+    # Paired with adds/removes of defaulted columns by
+    # add_default_constraint_guards/1 in the generator: SQL Server refuses
+    # DROP COLUMN while the column's DEFAULT constraint exists, and ecto's
+    # `remove` renders a bare DROP COLUMN. `direction: :up` precedes a column
+    # removal (drop the constraint before the alter block); `direction: :down`
+    # follows a column add, so rolling the add back drops the constraint
+    # before the reversed alter block removes the column.
+    defstruct [:table, :source, :direction, no_phase: true]
+
+    import Helper, only: [drop_default_constraint_statement: 2]
+
+    def up(%{direction: :up, table: table, source: source}) do
+      drop_default_constraint_statement(table, source)
+    end
+
+    def up(_), do: ""
+
+    def down(%{direction: :down, table: table, source: source}) do
+      drop_default_constraint_statement(table, source)
+    end
+
+    def down(_), do: ""
   end
 
   defmodule DropForeignKey do

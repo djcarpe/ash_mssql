@@ -1,6 +1,6 @@
 defmodule AshMssql.BulkCreateTest do
   use AshMssql.RepoCase, async: false
-  alias AshMssql.Test.Post
+  alias AshMssql.Test.{IntegerPost, Post}
 
   describe "bulk creates" do
     test "bulk creates insert each input" do
@@ -10,6 +10,30 @@ defmodule AshMssql.BulkCreateTest do
                Post
                |> Ash.Query.sort(:title)
                |> Ash.read!()
+    end
+
+    # Without client-supplied primary keys (identity or database-generated
+    # uuid pks) OUTPUT rows can't be matched back to their inputs by key, and
+    # OUTPUT order is not guaranteed — the data layer must fall back to
+    # row-by-row inserts so each returned record is unambiguously its input's.
+    test "bulk creates without client-supplied pks return records aligned to their inputs" do
+      titles = ["a", "b", "c", "d"]
+
+      %{records: records} =
+        Ash.bulk_create!(
+          Enum.map(titles, &%{title: &1}),
+          IntegerPost,
+          :create,
+          return_records?: true,
+          return_errors?: true
+        )
+
+      assert length(records) == length(titles)
+
+      for record <- records do
+        assert record.title == Enum.at(titles, record.__metadata__.bulk_create_index)
+        assert is_integer(record.id)
+      end
     end
 
     test "bulk creates can be streamed" do

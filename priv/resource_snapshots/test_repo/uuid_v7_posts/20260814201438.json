@@ -1,0 +1,39 @@
+{
+  "attributes": [
+    {
+      "default": "fragment(\"CONVERT(uniqueidentifier, STUFF(STUFF(LOWER(CONVERT(char(36), NEWID())), 1, 13, STUFF(CONVERT(varchar(12), CONVERT(binary(6), DATEDIFF_BIG(millisecond, '1970-01-01', SYSUTCDATETIME())), 2), 9, 0, '-')), 15, 1, '7'))\")",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": true,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "string",
+      "source": "title",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    }
+  ],
+  "table": "uuid_v7_posts",
+  "hash": "B9B8950080481A525FE91E2B3639D49E142819986A8097DBD5F301D24049CA21",
+  "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "base_filter": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true
+}

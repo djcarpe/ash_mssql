@@ -1,0 +1,61 @@
+{
+  "attributes": [
+    {
+      "default": "fragment(\"NEWID()\")",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": true,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "string",
+      "source": "first_name",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "string",
+      "source": "last_name",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "map",
+      "source": "bio",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false,
+      "collation": null
+    }
+  ],
+  "table": "authors",
+  "hash": "8CA92C0BE731C0BC6F0BA3915167339BA6DB5C27815F1177759EC5F66399B987",
+  "repo": "Elixir.AshMssql.TestRepo",
+  "identities": [],
+  "base_filter": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true
+}

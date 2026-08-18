@@ -116,9 +116,10 @@ defmodule AshMssql.MigrationGeneratorTest do
 
       assert file_contents =~ ~S{create index(:posts, ["id"]}
 
-      # the migration adds the id, with its default
+      # the migration adds the id, with a database-side default so rows
+      # written outside Ash also get generated ids
       assert file_contents =~
-               ~S[add :id, :uuid, null: false, primary_key: true]
+               ~S[add :id, :uuid, null: false, default: fragment("NEWID()"), primary_key: true]
 
       # the migration adds the id, with its default
       assert file_contents =~
@@ -913,6 +914,157 @@ defmodule AshMssql.MigrationGeneratorTest do
 
       assert file =~
                ~S[add :product_code, :binary]
+    end
+
+    # The well-known generator functions map to database-side defaults by
+    # function-capture identity (ash_postgres parity), and generated?: true
+    # uuid attributes derive theirs from the attribute type.
+    test "well-known generator function defaults become database defaults" do
+      defposts do
+        attributes do
+          uuid_primary_key(:id)
+          attribute(:ash_v4, :uuid, default: &Ash.UUID.generate/0)
+          attribute(:ecto_v4, :uuid, default: &Ecto.UUID.generate/0)
+          attribute(:v7, :uuid_v7, default: &Ash.UUIDv7.generate/0)
+          attribute(:published_on, :date, default: &Date.utc_today/0)
+          attribute(:naive_at, :naive_datetime, default: &NaiveDateTime.utc_now/0)
+          attribute(:custom, :string, default: fn -> "x" end)
+          attribute(:db_v4, :uuid, generated?: true)
+          attribute(:db_v7, :uuid_v7, generated?: true)
+          attribute(:db_sub_v4, AshMssql.Test.UuidSubtype, generated?: true)
+          attribute(:db_sub_v7, AshMssql.Test.UuidV7Subtype, generated?: true)
+          create_timestamp(:created_at)
+        end
+      end
+
+      defdomain([Post])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false
+      )
+
+      assert [file1] = Path.wildcard("test_migration_path/**/*_migrate_resources*.exs")
+      file = File.read!(file1)
+
+      v7_sql = AshMssql.MigrationGenerator.uuid_v7_default_sql()
+
+      # uuid v4, from either known capture, from generated?: true, and from a
+      # generated?: true NewType whose subtype chain reaches :uuid
+      assert file =~ ~S[add :id, :uuid, null: false, default: fragment("NEWID()")]
+      assert file =~ ~S[add :ash_v4, :uuid, default: fragment("NEWID()")]
+      assert file =~ ~S[add :ecto_v4, :uuid, default: fragment("NEWID()")]
+      assert file =~ ~S[add :db_v4, :uuid, default: fragment("NEWID()")]
+      assert file =~ ~S[add :db_sub_v4, :uuid, default: fragment("NEWID()")]
+
+      # uuid v7, from the known capture, from generated?: true, and from a
+      # generated?: true NewType whose subtype chain reaches :uuid_v7
+      assert file =~ "add :v7, :uuid, default: fragment(\"#{v7_sql}\")"
+      assert file =~ "add :db_v7, :uuid, default: fragment(\"#{v7_sql}\")"
+      assert file =~ "add :db_sub_v7, :uuid, default: fragment(\"#{v7_sql}\")"
+
+      # timestamps and dates
+      assert file =~
+               ~S[add :created_at, :utc_datetime_usec, null: false, default: fragment("SYSUTCDATETIME()")]
+
+      assert file =~
+               ~S[add :naive_at, :naive_datetime, default: fragment("SYSUTCDATETIME()")]
+
+      assert file =~
+               ~S[add :published_on, :date, default: fragment("CAST(SYSUTCDATETIME() AS date)")]
+
+      # unknown functions get no database default
+      assert file =~ ~r/add :custom, :string\n/
+    end
+
+    # SQL Server refuses DROP COLUMN while a DEFAULT constraint exists, so
+    # every migration that adds or removes a defaulted column on an existing
+    # table must drop the constraint before the column-removal direction runs.
+    test "adding/removing defaulted columns on existing tables emits constraint-drop guards" do
+      defposts do
+        attributes do
+          uuid_primary_key(:id)
+        end
+      end
+
+      defdomain([Post])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false
+      )
+
+      # Phase 2: add a defaulted column to the now-existing table.
+      defposts do
+        attributes do
+          uuid_primary_key(:id)
+          attribute(:db_v4, :uuid, generated?: true)
+        end
+      end
+
+      defdomain([Post])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false
+      )
+
+      assert [_file1, file2] =
+               Enum.sort(Path.wildcard("test_migration_path/**/*_migrate_resources*.exs"))
+
+      add_migration = File.read!(file2)
+
+      # The add itself carries the inline default; the down must drop the
+      # constraint before the reversed alter block removes the column.
+      assert add_migration =~ ~S[add :db_v4, :uuid, default: fragment("NEWID()")]
+
+      [_up, add_down] = String.split(add_migration, "def down do")
+      assert add_down =~ "sys.default_constraints"
+      assert add_down =~ ~S[remove :db_v4]
+
+      assert [drop_index, remove_index] =
+               [
+                 :binary.match(add_down, "sys.default_constraints") |> elem(0),
+                 :binary.match(add_down, "remove :db_v4") |> elem(0)
+               ]
+
+      assert drop_index < remove_index
+
+      # Phase 3: remove the defaulted column; the up must drop the constraint
+      # before the alter block removes the column.
+      defposts do
+        attributes do
+          uuid_primary_key(:id)
+        end
+      end
+
+      defdomain([Post])
+
+      AshMssql.MigrationGenerator.generate(Domain,
+        snapshot_path: "test_snapshots_path",
+        migration_path: "test_migration_path",
+        quiet: true,
+        format: false,
+        drop_columns: true
+      )
+
+      assert [_, _, file3] =
+               Enum.sort(Path.wildcard("test_migration_path/**/*_migrate_resources*.exs"))
+
+      remove_migration = File.read!(file3)
+      [remove_up, _down] = String.split(remove_migration, "def down do")
+
+      assert remove_up =~ "sys.default_constraints"
+      assert remove_up =~ ~S[remove :db_v4]
+
+      assert :binary.match(remove_up, "sys.default_constraints") |> elem(0) <
+               :binary.match(remove_up, "remove :db_v4") |> elem(0)
     end
   end
 
