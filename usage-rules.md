@@ -106,6 +106,13 @@ when writing filters, identities, and expressions.
   objects/arrays is not handled.
 - **Arrays**: SQL Server has no array column type, so `{:array, _}` attributes are
   not supported in migrations.
+- **Tables with triggers**: supported. SQL Server rejects a DML statement whose
+  `OUTPUT` clause has no `INTO` clause when the target table has enabled
+  triggers, so creates and upserts capture their `OUTPUT` rows in a temp table
+  and select them back rather than returning them from the write itself. This
+  is unconditional, so no configuration is needed when a trigger is added to an
+  existing table. It does mean a returning write reads the target table's shape,
+  so the connection needs `SELECT` on it as well as `INSERT`.
 
 ## Upserts
 

@@ -36,14 +36,13 @@ defmodule AshMssql.ActionSelectTest do
     end
   end
 
-  # Inserts return records via `OUTPUT INSERTED.[...]` on the INSERT itself, so
-  # the assertions target that clause — the INSERT's column list legitimately
-  # contains every written attribute.
+  # Inserts return records via `OUTPUT INSERTED.[...] INTO` on the INSERT
+  # itself, so the assertions target that clause — the INSERT's column list
+  # legitimately contains every written attribute. The INSERT rides in a larger
+  # batch (see `output_capture_batch/3`), hence the substring match.
   defp insert_output_clause(queries) do
     queries
-    |> Enum.find(fn query ->
-      String.starts_with?(query, "INSERT") and String.contains?(query, "posts")
-    end)
+    |> Enum.find(&String.contains?(&1, "INSERT INTO [posts]"))
     |> case do
       nil ->
         flunk("expected an INSERT against posts, got: #{inspect(queries)}")
@@ -182,7 +181,7 @@ defmodule AshMssql.ActionSelectTest do
 
     assert %{title: "fred", score: %Ash.NotLoaded{}} = post
 
-    merge = Enum.find(queries, &String.starts_with?(&1, "MERGE"))
+    merge = Enum.find(queries, &String.contains?(&1, "MERGE INTO [posts]"))
     assert merge, "expected a MERGE against posts, got: #{inspect(queries)}"
 
     assert [_, output] = String.split(merge, "OUTPUT ")

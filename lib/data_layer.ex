@@ -851,18 +851,13 @@ defmodule AshMssql.DataLayer do
     end
   end
 
+  @output_table "#ash_mssql_output"
+
   defp insert_all_returning(source, entries, repo, nil, _action_select, opts) do
     repo.insert_all(source, entries, opts)
   end
 
   defp insert_all_returning(source, entries, repo, resource, action_select, opts) do
-    # MSSQL supports the OUTPUT clause (the RETURNING-equivalent), which Ecto's
-    # Tds adapter exposes via `:returning`. This gives Postgres-parity batch
-    # inserts that return the inserted rows directly — including server-generated
-    # identity/uuid keys — instead of a fragile SCOPE_IDENTITY()/reload round-trip
-    # (SCOPE_IDENTITY() is batch-scoped and would be NULL on a separate query).
-    opts = Keyword.put(opts, :returning, action_select || true)
-
     if length(entries) > 1 and not alignable_by_pkey?(entries, resource) do
       # OUTPUT rows are not guaranteed to come back in VALUES order, and
       # without client-supplied primary keys (identity or database-generated
@@ -871,16 +866,79 @@ defmodule AshMssql.DataLayer do
       # entry's record.
       {count, records} =
         Enum.reduce(entries, {0, []}, fn entry, {count, acc} ->
-          case repo.insert_all(source, [entry], opts) do
-            {n, [record]} -> {count + n, [record | acc]}
-            {n, _} -> {count + n, acc}
-          end
+          {n, returned} = insert_returning(source, [entry], resource, action_select, repo, opts)
+          {count + n, Enum.reverse(returned) ++ acc}
         end)
 
       {count, Enum.reverse(records)}
     else
-      repo.insert_all(source, entries, opts)
+      insert_returning(source, entries, resource, action_select, repo, opts)
     end
+  end
+
+  # MSSQL's OUTPUT clause is the RETURNING-equivalent: it gives Postgres-parity
+  # batch inserts that return the inserted rows directly — including
+  # server-generated identity/uuid keys — instead of a fragile
+  # SCOPE_IDENTITY()/reload round-trip (SCOPE_IDENTITY() is batch-scoped and
+  # would be NULL on a separate query).
+  #
+  # The statement is emitted by hand rather than through `insert_all/3`'s
+  # `:returning` option, because that produces a bare `OUTPUT` — which MSSQL
+  # rejects outright on tables carrying triggers. See `output_capture_batch/3`.
+  defp insert_returning(source, entries, resource, action_select, repo, opts) do
+    qualified_table = qualified_table(target_table(source, resource), opts[:prefix])
+    output_columns = output_columns(resource, action_select)
+    output_into = "OUTPUT #{output_clause(output_columns)} INTO #{@output_table}"
+
+    {insert_sql, params} =
+      case entries |> Enum.flat_map(&Map.keys/1) |> Enum.uniq() do
+        [] ->
+          # No attribute is written explicitly, so every column takes its
+          # database default. MSSQL spells that `DEFAULT VALUES`, which inserts
+          # exactly one row per statement.
+          {Enum.map_join(entries, "\n", fn _entry ->
+             "INSERT INTO #{qualified_table} #{output_into} DEFAULT VALUES;"
+           end), []}
+
+        columns ->
+          {values_sql, params} = insert_values(entries, columns, resource, repo)
+
+          {"""
+           INSERT INTO #{qualified_table} (#{column_list(columns, resource)})
+           #{output_into}
+           VALUES #{values_sql};
+           """, params}
+      end
+
+    qualified_table
+    |> output_capture_batch(output_columns, insert_sql)
+    |> query_returning(params, resource, repo)
+  end
+
+  # Builds the INSERT VALUES clause (`(@1, @2), (@3, DEFAULT)`) plus the
+  # ordered, adapter-dumped parameter list. A column missing from an entry
+  # takes its database default rather than an explicit NULL, matching how
+  # `Ecto.Repo.insert_all/3` fills a ragged batch.
+  defp insert_values(entries, columns, resource, repo) do
+    adapter = repo.__adapter__()
+
+    {rows, params, _idx} =
+      Enum.reduce(entries, {[], [], 1}, fn entry, {rows_acc, params_acc, idx} ->
+        {placeholders, params_acc, idx} =
+          Enum.reduce(columns, {[], params_acc, idx}, fn column, {ph, pacc, i} ->
+            case Map.fetch(entry, column) do
+              :error ->
+                {["DEFAULT" | ph], pacc, i}
+
+              {:ok, value} ->
+                {["@#{i}" | ph], [dump_value(adapter, resource, column, value) | pacc], i + 1}
+            end
+          end)
+
+        {["(#{placeholders |> Enum.reverse() |> Enum.join(", ")})" | rows_acc], params_acc, idx}
+      end)
+
+    {rows |> Enum.reverse() |> Enum.join(", "), Enum.reverse(params)}
   end
 
   defp alignable_by_pkey?(entries, resource) do
@@ -900,9 +958,7 @@ defmodule AshMssql.DataLayer do
   # (`{:atomic, :upsert}`) are not supported (see `can?/2`); the update assigns
   # the incoming values directly.
   defp upsert_all_returning(source, resource, entries, options, action_select, repo, opts) do
-    table = upsert_table(source, resource)
-    prefix = opts[:prefix]
-    qualified_table = if prefix, do: "[#{prefix}].[#{table}]", else: "[#{table}]"
+    qualified_table = qualified_table(target_table(source, resource), opts[:prefix])
 
     columns =
       entries
@@ -916,19 +972,7 @@ defmodule AshMssql.DataLayer do
       |> Enum.filter(&(&1 in columns))
       |> Enum.reject(&(&1 in keys))
 
-    # OUTPUT what the action selects (parity with RETURNING); the full row when
-    # there is no action_select. Filtering the schema's field list (rather than
-    # mapping action_select directly) keeps unknown names out of the SQL.
-    output_fields =
-      case action_select do
-        nil -> resource.__schema__(:fields)
-        fields -> Enum.filter(resource.__schema__(:fields), &(&1 in fields))
-      end
-
-    output_columns =
-      output_fields
-      |> Enum.map(&resource.__schema__(:field_source, &1))
-      |> Enum.uniq()
+    output_columns = output_columns(resource, action_select)
 
     {values_sql, params} = upsert_values(entries, columns, resource, repo)
 
@@ -948,26 +992,97 @@ defmodule AshMssql.DataLayer do
             Enum.map_join(fields, ", ", &"target.[#{&1}] = source.[#{&1}]")
       end
 
-    output_clause = Enum.map_join(output_columns, ", ", &"INSERTED.[#{&1}]")
-
-    sql = """
+    merge = """
     MERGE INTO #{qualified_table} WITH (HOLDLOCK) AS target
     USING (VALUES #{values_sql}) AS source (#{col_list})
     ON (#{on_clause})
     #{matched_clause}
     WHEN NOT MATCHED BY TARGET THEN INSERT (#{col_list}) VALUES (#{Enum.map_join(columns, ", ", &"source.[#{&1}]")})
-    OUTPUT #{output_clause};
+    OUTPUT #{output_clause(output_columns)} INTO #{@output_table};
     """
 
-    %{columns: result_columns, rows: rows, num_rows: num_rows} = repo.query!(sql, params)
-
-    records = Enum.map(rows, fn row -> repo.load(resource, {result_columns, row}) end)
-
-    {num_rows, records}
+    qualified_table
+    |> output_capture_batch(output_columns, merge)
+    |> query_returning(params, resource, repo)
   end
 
-  defp upsert_table({table, _resource}, _fallback), do: table
-  defp upsert_table(_source, resource), do: AshMssql.DataLayer.Info.table(resource)
+  # MSSQL refuses a DML statement that carries an `OUTPUT` clause without an
+  # `INTO` clause when the target table has enabled triggers (error 334), so
+  # every returning-write captures its OUTPUT rows in a temporary table and
+  # selects them back out. `statement` supplies the write itself, and has to
+  # OUTPUT into `@output_table`.
+  #
+  # The capture is unconditional: detecting triggers would cost a round trip
+  # per write and the answer would go stale the moment one is added, while
+  # `OUTPUT ... INTO` behaves identically on tables that have none.
+  #
+  # The capture table is cloned from the target so its columns keep the
+  # target's exact types — there is no Ecto-to-T-SQL type mapping here to get
+  # wrong. The union is load-bearing: `SELECT ... INTO` copies the IDENTITY
+  # property of a plain column reference, and `OUTPUT ... INTO` cannot write to
+  # an identity column. Selecting through a union suppresses that copy while
+  # leaving every column's type intact.
+  #
+  # `SET NOCOUNT ON` stops every statement but the final SELECT from reporting
+  # a row count, which the driver would otherwise hand back in place of the
+  # captured rows.
+  #
+  # The trailing `DROP TABLE` and `SET NOCOUNT OFF` undo what the batch did to
+  # the connection. Both matter: a batch without parameters is not wrapped in
+  # `sp_executesql`, so its temp table and its SET options outlive it and belong
+  # to the pooled connection — a leaked capture table fails the next write on
+  # that connection outright, and a leaked `SET NOCOUNT ON` silently zeroes out
+  # the row count of every later statement. The leading drop covers a batch that
+  # failed before reaching its own.
+  defp output_capture_batch(qualified_table, output_columns, statement) do
+    columns = Enum.map_join(output_columns, ", ", &"[#{&1}]")
+
+    """
+    SET NOCOUNT ON;
+    IF OBJECT_ID('tempdb..#{@output_table}') IS NOT NULL DROP TABLE #{@output_table};
+    SELECT TOP 0 #{columns} INTO #{@output_table}
+    FROM (SELECT #{columns} FROM #{qualified_table}
+          UNION ALL SELECT #{columns} FROM #{qualified_table}) AS [ash_output_source];
+    #{String.trim(statement)}
+    SELECT #{columns} FROM #{@output_table};
+    DROP TABLE #{@output_table};
+    SET NOCOUNT OFF;
+    """
+  end
+
+  defp output_clause(output_columns) do
+    Enum.map_join(output_columns, ", ", &"INSERTED.[#{&1}]")
+  end
+
+  # OUTPUT what the action selects (parity with RETURNING); the full row when
+  # there is no action_select. Filtering the schema's field list (rather than
+  # mapping action_select directly) keeps unknown names out of the SQL.
+  defp output_columns(resource, action_select) do
+    case action_select do
+      nil -> resource.__schema__(:fields)
+      fields -> Enum.filter(resource.__schema__(:fields), &(&1 in fields))
+    end
+    |> Enum.map(&resource.__schema__(:field_source, &1))
+    |> Enum.uniq()
+  end
+
+  defp column_list(columns, resource) do
+    Enum.map_join(columns, ", ", &"[#{resource.__schema__(:field_source, &1)}]")
+  end
+
+  # The batch's only result set is the SELECT of the captured rows, so the
+  # driver's columns/rows are the written records and `num_rows` their count.
+  defp query_returning(sql, params, resource, repo) do
+    %{columns: columns, rows: rows, num_rows: num_rows} = repo.query!(sql, params)
+
+    {num_rows, Enum.map(rows, &repo.load(resource, {columns, &1}))}
+  end
+
+  defp qualified_table(table, nil), do: "[#{table}]"
+  defp qualified_table(table, prefix), do: "[#{prefix}].[#{table}]"
+
+  defp target_table({table, _resource}, _fallback), do: table
+  defp target_table(_source, resource), do: AshMssql.DataLayer.Info.table(resource)
 
   # `nil` action_select means the caller didn't restrict the selection (or the
   # capability isn't in play) and the full row is returned. Otherwise the
@@ -999,7 +1114,7 @@ defmodule AshMssql.DataLayer do
         {placeholders, params_acc, idx} =
           Enum.reduce(columns, {[], params_acc, idx}, fn column, {ph, pacc, i} ->
             value = Map.get(entry, column)
-            dumped = upsert_dump(adapter, resource, column, value)
+            dumped = dump_value(adapter, resource, column, value)
             {["@#{i}" | ph], [dumped | pacc], i + 1}
           end)
 
@@ -1009,7 +1124,7 @@ defmodule AshMssql.DataLayer do
     {rows |> Enum.reverse() |> Enum.join(", "), Enum.reverse(params)}
   end
 
-  defp upsert_dump(adapter, resource, column, value) do
+  defp dump_value(adapter, resource, column, value) do
     type = resource.__schema__(:type, column)
 
     case Ecto.Type.adapter_dump(adapter, type, value) do
