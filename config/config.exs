@@ -1,5 +1,10 @@
 import Config
 
+# Ash 3.33 requires this to be set. SQL data layers (and this one's
+# `string_length`, via LEN) count codepoints, so the in-memory `min_length`/
+# `max_length` checks and `string_length` count the same way.
+config :ash, default_string_length_count: :codepoints
+
 if Mix.env() == :dev do
   config :git_ops,
     mix_project: AshMssql.MixProject,
