@@ -244,4 +244,68 @@ defmodule AshMssql.Test.LoadTest do
       assert %{linked_posts: [_, _]} = Post.get_by_id!(source_post.id, load: [:linked_posts])
     end
   end
+
+  test "related queries are limited and sorted per parent, via CROSS APPLY" do
+    for title <- ["a", "b"] do
+      post =
+        Post
+        |> Ash.Changeset.for_create(:create, %{title: title})
+        |> Ash.create!()
+
+      for comment_title <- ["3", "1", "2"] do
+        Comment
+        |> Ash.Changeset.for_create(:create, %{title: comment_title})
+        |> Ash.Changeset.manage_relationship(:post, post, type: :append_and_remove)
+        |> Ash.create!()
+      end
+    end
+
+    comment_query =
+      Comment
+      |> Ash.Query.sort(title: :asc)
+      |> Ash.Query.limit(2)
+
+    results =
+      capture_queries(fn ->
+        Post
+        |> Ash.Query.load(comments: comment_query)
+        |> Ash.Query.sort(title: :asc)
+        |> Ash.read!()
+      end)
+
+    assert [
+             %Post{title: "a", comments: [%{title: "1"}, %{title: "2"}]},
+             %Post{title: "b", comments: [%{title: "1"}, %{title: "2"}]}
+           ] = results.result
+
+    assert Enum.any?(results.queries, &String.contains?(&1, "CROSS APPLY"))
+  end
+
+  defp capture_queries(fun) do
+    test_pid = self()
+    handler_id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:ash_mssql, :test_repo, :query],
+      fn _event, _measurements, %{query: query}, _config ->
+        send(test_pid, {handler_id, query})
+      end,
+      nil
+    )
+
+    try do
+      %{result: fun.(), queries: drain_queries(handler_id, [])}
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp drain_queries(handler_id, acc) do
+    receive do
+      {^handler_id, query} -> drain_queries(handler_id, [query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 end
