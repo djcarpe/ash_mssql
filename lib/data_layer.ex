@@ -1,4 +1,6 @@
 defmodule AshMssql.DataLayer do
+  require Ash.Expr
+
   @index %Spark.Dsl.Entity{
     name: :index,
     describe: """
@@ -402,9 +404,22 @@ defmodule AshMssql.DataLayer do
       AshMssql.DataLayer.Info.repo(resource) == AshMssql.DataLayer.Info.repo(other_resource)
   end
 
-  def can?(_resource, {:lateral_join, _}) do
-    false
+  # Only direct relationships and single-hop `through` relationships (including
+  # many_to_many) are handled; longer `through:` chains fall back to ash's
+  # non-lateral loading. `resources` is `[source | through_resources] ++
+  # [destination]`, so a chain longer than one hop has more than three entries.
+  def can?(resource, {:lateral_join, resources}) when length(resources) <= 3 do
+    repo = AshMssql.DataLayer.Info.repo(resource, :read)
+    data_layer = Ash.DataLayer.data_layer(resource)
+
+    data_layer == __MODULE__ &&
+      Enum.all?(resources, fn resource ->
+        Ash.DataLayer.data_layer(resource) == data_layer &&
+          AshMssql.DataLayer.Info.repo(resource, :read) == repo
+      end)
   end
+
+  def can?(_resource, {:lateral_join, _}), do: false
 
   def can?(_, :boolean_filter), do: true
 
@@ -492,27 +507,11 @@ defmodule AshMssql.DataLayer do
   end
 
   @impl true
+  # Delegated rather than hand-rolled because lateral joins need the rest of what
+  # it does: the 500-binding offset for a lateral source, the rebuilt
+  # `lateral_join_source_query`, and the `lateral_join?` flag.
   def set_context(resource, data_layer_query, context) do
-    start_bindings = context[:data_layer][:start_bindings_at] || 0
-    data_layer_query = from(row in data_layer_query, as: ^start_bindings)
-
-    data_layer_query =
-      if context[:data_layer][:table] do
-        %{
-          data_layer_query
-          | from: %{data_layer_query.from | source: {context[:data_layer][:table], resource}}
-        }
-      else
-        data_layer_query
-      end
-
-    {:ok,
-     AshSql.Bindings.default_bindings(
-       data_layer_query,
-       resource,
-       AshMssql.SqlImplementation,
-       context
-     )}
+    AshSql.Query.set_context(resource, data_layer_query, AshMssql.SqlImplementation, context)
   end
 
   @impl true
@@ -576,6 +575,9 @@ defmodule AshMssql.DataLayer do
       end
 
     {:ok, add_exists_aggs(result, resource, query_before_select, exists)}
+  rescue
+    e ->
+      handle_raised_error(e, __STACKTRACE__, query, resource)
   end
 
   defp add_exists_aggs(result, resource, query, exists) do
@@ -678,6 +680,576 @@ defmodule AshMssql.DataLayer do
   @impl true
   def resource_to_query(resource, _) do
     from(row in {AshMssql.DataLayer.Info.table(resource) || "", resource}, [])
+  end
+
+  @impl true
+  def run_query_with_lateral_join(
+        query,
+        root_data,
+        destination_resource,
+        path
+      ) do
+    {calculations_require_rewrite, aggregates_require_rewrite, rewritten_query} =
+      AshSql.Query.rewrite_nested_selects(query)
+
+    case lateral_join_query(rewritten_query, root_data, path, true) do
+      {:ok, lateral_join_query} ->
+        source_resource = path |> Enum.at(0) |> elem(0) |> Map.get(:resource)
+
+        # patching strange behavior that sets `take` to this empty list even
+        # though nothing asked for it
+        lateral_join_query =
+          case lateral_join_query do
+            %{select: %{take: %{0 => {:map, []}}}} -> put_in(lateral_join_query.select.take, %{})
+            _ -> lateral_join_query
+          end
+
+        results =
+          dynamic_repo(source_resource, lateral_join_query, :read).all(
+            lateral_join_query,
+            repo_opts(nil, nil, source_resource)
+          )
+          |> AshSql.Query.remap_mapped_fields(
+            rewritten_query,
+            calculations_require_rewrite,
+            aggregates_require_rewrite
+          )
+
+        {:ok, results}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  rescue
+    e ->
+      handle_raised_error(e, __STACKTRACE__, query, destination_resource)
+  end
+
+  @impl true
+  def run_aggregate_query_with_lateral_join(
+        query,
+        aggregates,
+        root_data,
+        destination_resource,
+        path
+      ) do
+    {can_group, cant_group} =
+      aggregates
+      |> Enum.split_with(&AshSql.Aggregate.can_group?(destination_resource, &1, query))
+      |> case do
+        {[one], cant_group} -> {[], [one | cant_group]}
+        {can_group, cant_group} -> {can_group, cant_group}
+      end
+
+    # Ordering is pointless for an aggregate, and the `__order__` column would
+    # force an ORDER BY into a derived table, which MSSQL rejects unless it is
+    # paired with TOP/OFFSET.
+    case lateral_join_query(query, root_data, path, false) do
+      {:ok, lateral_join_query} ->
+        source_resource = path |> Enum.at(0) |> elem(0) |> Map.get(:resource)
+
+        base_subquery =
+          from(row in subquery(lateral_join_query), as: ^0, select: %{})
+          |> AshSql.Bindings.default_bindings(source_resource, AshMssql.SqlImplementation)
+
+        {global_filter, can_group} = AshSql.Aggregate.extract_shared_filters(can_group)
+
+        filtered_subquery =
+          case global_filter do
+            {:ok, global_filter} -> filter(base_subquery, global_filter, destination_resource)
+            :error -> {:ok, base_subquery}
+          end
+
+        case filtered_subquery do
+          {:error, error} ->
+            {:error, error}
+
+          {:ok, subquery} ->
+            grouped_query =
+              Enum.reduce(can_group, subquery, fn agg, subquery ->
+                has_exists? =
+                  Ash.Filter.find(agg.query && agg.query.filter, fn
+                    %Ash.Query.Exists{} -> true
+                    _ -> false
+                  end)
+
+                first_relationship =
+                  Ash.Resource.Info.relationship(
+                    source_resource,
+                    agg.relationship_path |> Enum.at(0)
+                  )
+
+                AshSql.Aggregate.add_subquery_aggregate_select(
+                  subquery,
+                  agg.relationship_path |> Enum.drop(1),
+                  agg,
+                  destination_resource,
+                  has_exists?,
+                  first_relationship
+                )
+              end)
+
+            result =
+              case can_group do
+                [] ->
+                  %{}
+
+                _ ->
+                  dynamic_repo(source_resource, grouped_query, :read).one(
+                    grouped_query,
+                    repo_opts(nil, nil, source_resource)
+                  )
+              end
+
+            {:ok,
+             AshSql.AggregateQuery.add_single_aggs(
+               result,
+               source_resource,
+               base_subquery,
+               cant_group,
+               AshMssql.SqlImplementation
+             )}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  rescue
+    e ->
+      handle_raised_error(e, __STACKTRACE__, query, destination_resource)
+  end
+
+  # Direct relationship: `CROSS APPLY (SELECT ... WHERE dest.fk = source.pk)`.
+  defp lateral_join_query(
+         query,
+         root_data,
+         [{source_query, source_attribute, destination_attribute, relationship}] = path,
+         order?
+       ) do
+    source_query = Ash.Query.new(source_query)
+
+    base_query =
+      if Map.get(relationship, :from_many?) do
+        from(row in query, limit: 1)
+      else
+        query
+      end
+
+    base_query =
+      if Map.get(relationship, :offset) do
+        from(row in base_query, offset: ^relationship.offset)
+      else
+        base_query
+      end
+
+    with {:ok, base_query, ordered?} <- add_lateral_order(base_query, order?),
+         {:ok, base_query} <-
+           correlate_destination(
+             base_query,
+             relationship,
+             destination_attribute,
+             source_attribute
+           ),
+         {:ok, data_layer_query} <-
+           lateral_join_source_query(query, source_query, root_data, path) do
+      source_pkey = Ash.Resource.Info.primary_key(source_query.resource)
+
+      data_layer_query =
+        if Map.get(relationship, :manual) || Map.get(relationship, :no_attributes?) do
+          data_layer_query
+        else
+          from(source in data_layer_query,
+            where: ^source_records_filter(root_data, source_attribute, source_pkey)
+          )
+        end
+
+      data_layer_query =
+        data_layer_query
+        |> Ecto.Query.exclude(:distinct)
+        |> Ecto.Query.exclude(:select)
+
+      if ordered? do
+        {:ok,
+         from(source in data_layer_query,
+           inner_lateral_join: destination in subquery(base_query),
+           on: true,
+           order_by: destination.__order__,
+           select: merge(destination, %{__lateral_join_source__: map(source, ^source_pkey)}),
+           distinct: true
+         )}
+      else
+        {:ok,
+         from(source in data_layer_query,
+           inner_lateral_join: destination in subquery(base_query),
+           on: true,
+           select: merge(destination, %{__lateral_join_source__: map(source, ^source_pkey)}),
+           distinct: true
+         )}
+      end
+    end
+  end
+
+  # One join/through resource (many_to_many, or `has_many ... through:`).
+  defp lateral_join_query(
+         query,
+         root_data,
+         [
+           {source_query, source_attribute, source_attribute_on_join_resource, relationship},
+           {through_resource, destination_attribute_on_join_resource, destination_attribute,
+            through_relationship}
+         ] = path,
+         order?
+       ) do
+    source_query = Ash.Query.new(source_query)
+    source_values = Enum.map(root_data, &Map.get(&1, source_attribute))
+    source_pkey = Ash.Resource.Info.primary_key(source_query.resource)
+    through_binding = Map.get(query, :__ash_bindings__)[:current]
+
+    with {:ok, data_layer_query} <-
+           lateral_join_source_query(query, source_query, root_data, path),
+         {:ok, through_query} <-
+           through_data_layer_query(
+             query,
+             source_query,
+             relationship,
+             through_resource,
+             through_relationship
+           ),
+         {:ok, base_query, ordered?} <- add_lateral_order(query, order?) do
+      data_layer_query =
+        data_layer_query
+        |> Ecto.Query.exclude(:select)
+        |> Ecto.Query.exclude(:distinct)
+
+      through_query = Ecto.Query.exclude(through_query, :select)
+
+      # When the join table's own query is non-trivial it cannot be flattened
+      # into the destination query, so the correlation to the source row is
+      # pushed down into it instead.
+      needs_subquery? =
+        through_query.limit != nil || through_query.order_bys != [] ||
+          through_query.joins != [] ||
+          Enum.any?(through_query.wheres, fn where -> where.subqueries != [] end)
+
+      through_query =
+        if needs_subquery? do
+          subquery(
+            from(through in through_query,
+              where:
+                field(through, ^source_attribute_on_join_resource) ==
+                  field(parent_as(^0), ^source_attribute)
+            )
+          )
+        else
+          through_query
+        end
+
+      destination_query =
+        if needs_subquery? do
+          from(destination in base_query,
+            join: through in ^through_query,
+            as: ^through_binding,
+            on:
+              field(through, ^destination_attribute_on_join_resource) ==
+                field(destination, ^destination_attribute)
+          )
+        else
+          from(destination in base_query,
+            join: through in ^through_query,
+            as: ^through_binding,
+            on:
+              field(through, ^destination_attribute_on_join_resource) ==
+                field(destination, ^destination_attribute),
+            where:
+              field(through, ^source_attribute_on_join_resource) ==
+                field(parent_as(^0), ^source_attribute)
+          )
+        end
+
+      if ordered? do
+        {:ok,
+         from(source in data_layer_query,
+           where: field(source, ^source_attribute) in ^source_values,
+           inner_lateral_join: destination in subquery(destination_query),
+           on: true,
+           select: destination,
+           select_merge: %{__lateral_join_source__: map(source, ^source_pkey)},
+           order_by: destination.__order__,
+           distinct: true
+         )}
+      else
+        {:ok,
+         from(source in data_layer_query,
+           where: field(source, ^source_attribute) in ^source_values,
+           inner_lateral_join: destination in subquery(destination_query),
+           on: true,
+           select: destination,
+           select_merge: %{__lateral_join_source__: map(source, ^source_pkey)},
+           distinct: true
+         )}
+      end
+    end
+  end
+
+  defp correlate_destination(base_query, relationship, destination_attribute, source_attribute) do
+    cond do
+      Map.get(relationship, :manual) ->
+        {module, opts} = relationship.manual
+
+        case module.ash_mssql_subquery(opts, 0, 0, base_query) do
+          {:ok, subquery} -> {:ok, subquery}
+          {:error, error} -> {:error, error}
+          subquery -> {:ok, subquery}
+        end
+
+      Map.get(relationship, :no_attributes?) ->
+        {:ok, base_query}
+
+      true ->
+        {:ok,
+         from(destination in base_query,
+           where:
+             field(destination, ^destination_attribute) ==
+               field(parent_as(^0), ^source_attribute)
+         )}
+    end
+  end
+
+  defp source_records_filter(root_data, source_attribute, source_pkey) do
+    case source_pkey do
+      [] ->
+        source_values = Enum.map(root_data, &Map.get(&1, source_attribute))
+        Ecto.Query.dynamic([source], field(source, ^source_attribute) in ^source_values)
+
+      [field] ->
+        values = Enum.map(root_data, &Map.get(&1, field))
+        Ecto.Query.dynamic([source], field(source, ^field) in ^values)
+
+      fields ->
+        Enum.reduce(root_data, nil, fn record, acc ->
+          row_match =
+            Enum.reduce(fields, nil, fn field, acc ->
+              if is_nil(acc) do
+                Ecto.Query.dynamic([source], field(source, ^field) == ^Map.get(record, field))
+              else
+                Ecto.Query.dynamic(
+                  [source],
+                  field(source, ^field) == ^Map.get(record, field) and ^acc
+                )
+              end
+            end)
+
+          if is_nil(acc) do
+            row_match
+          else
+            Ecto.Query.dynamic(^row_match or ^acc)
+          end
+        end)
+    end
+  end
+
+  # Postgres preserves the relationship's ordering across a lateral join with an
+  # `__order__` column built from `over(row_number(), :order)`. Ecto's Tds
+  # adapter renders no window functions at all (and MSSQL's `WINDOW` clause
+  # needs SQL Server 2022), so the same column is emitted as a plain
+  # `ROW_NUMBER()` fragment. Returns `{:ok, query, ordered?}`.
+  defp add_lateral_order(query, false), do: {:ok, query, false}
+
+  defp add_lateral_order(query, true) do
+    sort = query.__ash_bindings__[:sort]
+
+    if query.__ash_bindings__[:sort_applied?] || sort in [nil, []] do
+      {:ok, query, false}
+    else
+      case AshSql.Sort.sort(
+             query,
+             sort,
+             query.__ash_bindings__.resource,
+             [],
+             query.__ash_bindings__.root_binding,
+             :return
+           ) do
+        {:ok, [], query} ->
+          {:ok, query, false}
+
+        {:ok, sort_fragments, query} ->
+          order =
+            Enum.reduce(sort_fragments, fn next, acc ->
+              Ecto.Query.dynamic(fragment("??", ^acc, ^next))
+            end)
+
+          row_number = Ecto.Query.dynamic(fragment("ROW_NUMBER() OVER (ORDER BY ?)", ^order))
+
+          query = Ecto.Query.select_merge(query, ^%{__order__: row_number})
+
+          # MSSQL only allows ORDER BY inside a derived table when it is paired
+          # with TOP/OFFSET — which is also the only case where the inner sort
+          # changes *which* rows come back rather than just their order.
+          query =
+            if query.limit || query.offset do
+              Ecto.Query.order_by(query, ^[asc: order])
+            else
+              query
+            end
+
+          {:ok, Map.update!(query, :__ash_bindings__, &Map.put(&1, :sort_applied?, true)), true}
+
+        {:error, error} ->
+          {:error, error}
+      end
+    end
+  end
+
+  defp through_data_layer_query(
+         query,
+         source_query,
+         relationship,
+         through_resource,
+         through_relationship
+       ) do
+    through_resource.resource
+    |> Ash.Query.new()
+    |> Ash.Query.put_context(:data_layer, %{
+      start_bindings_at: Map.get(query, :__ash_bindings__)[:current]
+    })
+    |> Ash.Query.set_context(Map.get(through_relationship, :context))
+    |> then(fn q ->
+      Ash.Query.do_filter(
+        q,
+        fill_relationship_filter_templates(
+          Map.get(through_relationship, :filter),
+          source_query,
+          q
+        )
+      )
+    end)
+    |> then(fn q ->
+      # For through-list paths the first relationship's filter applies to the
+      # through table; for many_to_many it applies to the destination instead.
+      if !is_atom(Map.get(relationship, :through)) || is_nil(Map.get(relationship, :through)) do
+        Ash.Query.do_filter(
+          q,
+          fill_relationship_filter_templates(
+            Map.get(relationship, :filter),
+            source_query,
+            q
+          ),
+          parent_stack: [relationship.source]
+        )
+      else
+        q
+      end
+    end)
+    |> Ash.Query.sort(Map.get(through_relationship, :sort))
+    |> then(fn q ->
+      if Map.get(through_relationship, :limit) do
+        Ash.Query.limit(q, Map.get(through_relationship, :limit))
+      else
+        q
+      end
+    end)
+    |> Ash.Query.set_tenant(source_query.tenant)
+    |> case do
+      %{valid?: true} = through_query -> Ash.Query.data_layer_query(through_query)
+      invalid -> {:error, invalid}
+    end
+  end
+
+  # Relationship filters used by `through` relationships may reference
+  # `^actor/1`, `^context/1`, `^arg/1` or `^tenant/0` templates, which must be
+  # resolved before the filter is compiled into SQL.
+  defp fill_relationship_filter_templates(filter, source_query, related_query) do
+    Ash.Expr.fill_template(filter,
+      actor: source_query.context[:private][:actor],
+      tenant: source_query.to_tenant,
+      args: source_query.arguments,
+      context: related_query.context
+    )
+  end
+
+  defp lateral_join_source_query(
+         %{__ash_bindings__: %{lateral_join_source_query: lateral_join_source_query}},
+         _source_query,
+         _root_data,
+         _path
+       )
+       when not is_nil(lateral_join_source_query) do
+    {:ok, lateral_join_source_query}
+  end
+
+  defp lateral_join_source_query(_query, source_query, root_data, path) do
+    source_query.resource
+    |> Ash.Query.set_context(%{:data_layer => source_query.context[:data_layer]})
+    |> Ash.Query.set_context(%{
+      :data_layer =>
+        Map.put(source_query.context[:data_layer] || %{}, :no_inner_join?, true)
+        |> Map.delete(:lateral_join_source)
+    })
+    |> Ash.Query.set_tenant(source_query.tenant)
+    |> filter_for_records(root_data)
+    |> case do
+      %{valid?: true} = query ->
+        relationship = path |> List.first() |> elem(3)
+
+        {:ok, expr} =
+          Ash.Filter.hydrate_refs(relationship.filter, %{
+            resource: relationship.destination,
+            parent_stack: [relationship.source]
+          })
+
+        used_aggregates =
+          expr
+          |> AshSql.Join.parent_expr()
+          |> Ash.Filter.used_aggregates([])
+
+        with {:ok, query} <- Ash.Query.data_layer_query(query) do
+          AshSql.Aggregate.add_aggregates(
+            query,
+            used_aggregates,
+            relationship.source,
+            false,
+            query.__ash_bindings__.root_binding
+          )
+        end
+
+      query ->
+        {:error, query}
+    end
+  end
+
+  defp filter_for_records(query, records) do
+    keys =
+      case Ash.Resource.Info.primary_key(query.resource) do
+        [] ->
+          case Ash.Resource.Info.identities(query.resource) do
+            [%{keys: keys} | _] -> keys
+            _ -> []
+          end
+
+        pkey ->
+          pkey
+      end
+
+    expr =
+      case keys do
+        [] ->
+          raise "Cannot use lateral joins with a resource that has no primary key and no identities"
+
+        [key] ->
+          Ash.Expr.expr(^Ash.Expr.ref(key) in ^Enum.map(records, &Map.get(&1, key)))
+
+        keys ->
+          Enum.reduce(records, Ash.Expr.expr(false), fn record, filter_expr ->
+            all_keys_match_expr =
+              Enum.reduce(keys, Ash.Expr.expr(true), fn key, key_expr ->
+                Ash.Expr.expr(^key_expr and ^Ash.Expr.ref(key) == ^Map.get(record, key))
+              end)
+
+            Ash.Expr.expr(^filter_expr or ^all_keys_match_expr)
+          end)
+      end
+
+    Ash.Query.do_filter(query, expr)
   end
 
   @impl true
@@ -1298,12 +1870,13 @@ defmodule AshMssql.DataLayer do
     )
   end
 
-  # MSSQL error 547: a statement conflicted with a FOREIGN KEY / REFERENCE
-  # (or CHECK) constraint — e.g. inserting a row that references a missing parent.
+  # Destroys go through `repo.delete` (unlike the raw insert/update paths),
+  # so a REFERENCE-constraint violation surfaces as an Ecto.ConstraintError
+  # when the deleted resource has no back-relation to the referencing
+  # resource (`add_related_foreign_key_constraints` can only declare
+  # constraints it can see).
   defp handle_raised_error(
-         %Tds.Error{
-           mssql: %{number: 547}
-         },
+         %Ecto.ConstraintError{type: :foreign_key},
          stacktrace,
          context,
          resource
@@ -1311,7 +1884,238 @@ defmodule AshMssql.DataLayer do
     handle_raised_error(
       Ash.Error.Changes.InvalidChanges.exception(
         fields: Ash.Resource.Info.primary_key(resource),
-        message: "referenced something that does not exist"
+        message: "would leave records behind"
+      ),
+      stacktrace,
+      context,
+      resource
+    )
+  end
+
+  # MSSQL error 547: a statement conflicted with a constraint. The message
+  # distinguishes three kinds:
+  #   FOREIGN KEY - this row references a parent that does not exist
+  #   REFERENCE   - other rows still reference this row (e.g. deleting a
+  #                 parent that has children)
+  #   CHECK       - a CHECK constraint rejected the values
+  defp handle_raised_error(
+         %Tds.Error{
+           mssql: mssql
+         },
+         stacktrace,
+         context,
+         resource
+       )
+       when is_map(mssql) and mssql.number == 547 do
+    raw_message = mssql[:msg_text] || ""
+
+    error =
+      case Regex.run(
+             ~r/conflicted with the (CHECK|FOREIGN KEY|REFERENCE) constraint "([^"]+)"/,
+             raw_message,
+             capture: :all_but_first
+           ) do
+        ["CHECK", constraint_name] ->
+          Ash.Error.Changes.InvalidChanges.exception(
+            fields: [],
+            message: "violates check constraint #{inspect(constraint_name)}"
+          )
+
+        ["FOREIGN KEY", constraint_name] ->
+          case find_foreign_key_field(resource, context, constraint_name) do
+            %{field: field, message: message} ->
+              Ash.Error.Changes.InvalidAttribute.exception(
+                field: field,
+                message: message || "does not exist"
+              )
+
+            nil ->
+              Ash.Error.Changes.InvalidChanges.exception(
+                fields: Ash.Resource.Info.primary_key(resource),
+                message: "referenced something that does not exist"
+              )
+          end
+
+        ["REFERENCE", _constraint_name] ->
+          Ash.Error.Changes.InvalidChanges.exception(
+            fields: Ash.Resource.Info.primary_key(resource),
+            message: "would leave records behind"
+          )
+
+        _ ->
+          Ash.Error.Changes.InvalidChanges.exception(
+            fields: Ash.Resource.Info.primary_key(resource),
+            message: "referenced something that does not exist"
+          )
+      end
+
+    handle_raised_error(error, stacktrace, context, resource)
+  end
+
+  # MSSQL error 207: a statement referenced a column that does not exist.
+  # Reads, filters, sorts, inserts, upserts, and updates all raise this same
+  # error number when the resource defines an attribute whose column is
+  # missing from the table - usually schema drift from unrun migrations.
+  defp handle_raised_error(
+         %Tds.Error{
+           mssql: mssql
+         },
+         stacktrace,
+         context,
+         resource
+       )
+       when is_map(mssql) and mssql.number == 207 do
+    raw_message = mssql[:msg_text] || ""
+
+    column =
+      case Regex.run(~r/Invalid column name '([^']+)'/, raw_message, capture: :all_but_first) do
+        [column] -> column
+        _ -> nil
+      end
+
+    handle_raised_error(
+      AshMssql.Error.MissingColumn.exception(
+        resource: resource,
+        table: AshMssql.DataLayer.Info.table(resource),
+        column: column,
+        raw_message: raw_message
+      ),
+      stacktrace,
+      context,
+      resource
+    )
+  end
+
+  # MSSQL error 208: a statement referenced a table that does not exist -
+  # usually a resource whose migrations were never generated or run.
+  defp handle_raised_error(
+         %Tds.Error{
+           mssql: mssql
+         },
+         stacktrace,
+         context,
+         resource
+       )
+       when is_map(mssql) and mssql.number == 208 do
+    raw_message = mssql[:msg_text] || ""
+
+    table =
+      case Regex.run(~r/Invalid object name '([^']+)'/, raw_message, capture: :all_but_first) do
+        [table] -> table
+        _ -> AshMssql.DataLayer.Info.table(resource)
+      end
+
+    handle_raised_error(
+      AshMssql.Error.MissingTable.exception(
+        resource: resource,
+        table: table,
+        raw_message: raw_message
+      ),
+      stacktrace,
+      context,
+      resource
+    )
+  end
+
+  # MSSQL error 515: NULL written to a non-nullable column. Ash validates
+  # allow_nil? itself, so reaching the database with a NULL usually means the
+  # resource declares the attribute as nullable while the column is NOT NULL.
+  defp handle_raised_error(
+         %Tds.Error{
+           mssql: mssql
+         },
+         stacktrace,
+         context,
+         resource
+       )
+       when is_map(mssql) and mssql.number == 515 do
+    raw_message = mssql[:msg_text] || ""
+
+    error =
+      with [column] <-
+             Regex.run(~r/Cannot insert the value NULL into column '([^']+)'/, raw_message,
+               capture: :all_but_first
+             ),
+           %{name: field} <- find_attribute_by_source(resource, column) do
+        Ash.Error.Changes.InvalidAttribute.exception(
+          field: field,
+          message: "must not be null"
+        )
+      else
+        _ ->
+          Ash.Error.Changes.InvalidChanges.exception(
+            fields: [],
+            message: "a column that does not allow null values was set to null: #{raw_message}"
+          )
+      end
+
+    handle_raised_error(error, stacktrace, context, resource)
+  end
+
+  # MSSQL errors 2628 (and its legacy form 8152): a string value is too long
+  # for its column. 2628 names the table, column, and truncated value; 8152
+  # carries no details.
+  defp handle_raised_error(
+         %Tds.Error{
+           mssql: mssql
+         },
+         stacktrace,
+         context,
+         resource
+       )
+       when is_map(mssql) and (mssql.number == 2628 or mssql.number == 8152) do
+    raw_message = mssql[:msg_text] || ""
+
+    error =
+      with [_table, column] <-
+             Regex.run(
+               ~r/String or binary data would be truncated in table '([^']+)', column '([^']+)'/,
+               raw_message,
+               capture: :all_but_first
+             ),
+           %{name: field} <- find_attribute_by_source(resource, column) do
+        Ash.Error.Changes.InvalidAttribute.exception(
+          field: field,
+          message: "value is too long for the column and would be truncated"
+        )
+      else
+        _ ->
+          Ash.Error.Changes.InvalidChanges.exception(
+            fields: [],
+            message: "a value is too long for its column and would be truncated"
+          )
+      end
+
+    handle_raised_error(error, stacktrace, context, resource)
+  end
+
+  # MSSQL error 8115: arithmetic overflow - a numeric value does not fit the
+  # column's precision/scale. The message names only the types involved.
+  defp handle_raised_error(
+         %Tds.Error{
+           mssql: mssql
+         },
+         stacktrace,
+         context,
+         resource
+       )
+       when is_map(mssql) and mssql.number == 8115 do
+    raw_message = mssql[:msg_text] || ""
+
+    detail =
+      case Regex.run(
+             ~r/Arithmetic overflow error converting (.+) to data type (.+)\./,
+             raw_message,
+             capture: :all_but_first
+           ) do
+        [from, to] -> " converting #{from} to #{to}"
+        _ -> ""
+      end
+
+    handle_raised_error(
+      Ash.Error.Changes.InvalidChanges.exception(
+        fields: [],
+        message: "value is out of range (arithmetic overflow#{detail})"
       ),
       stacktrace,
       context,
@@ -1329,7 +2133,7 @@ defmodule AshMssql.DataLayer do
            mssql: mssql
          },
          _stacktrace,
-         _context,
+         context,
          resource
        )
        when is_map(mssql) and (mssql.number == 2627 or mssql.number == 2601) do
@@ -1338,7 +2142,7 @@ defmodule AshMssql.DataLayer do
     index_name = extract_duplicate_key_name(message_text)
 
     %{fields: fields, message: message} =
-      find_constraint_data(resource, index_name)
+      find_constraint_data(resource, context, index_name)
 
     message = message || "has already been taken"
 
@@ -1377,15 +2181,16 @@ defmodule AshMssql.DataLayer do
     end
   end
 
-  defp find_constraint_data(resource, :PRIMARY) do
+  defp find_constraint_data(resource, _context, :PRIMARY) do
     %{
       fields: Ash.Resource.Info.primary_key(resource),
       message: nil
     }
   end
 
-  defp find_constraint_data(resource, index_name) do
+  defp find_constraint_data(resource, context, index_name) do
     find_custom_index(resource, index_name) || find_identity(resource, index_name) ||
+      find_unique_index_name(resource, context, index_name) ||
       %{fields: Ash.Resource.Info.primary_key(resource), message: nil}
   end
 
@@ -1396,9 +2201,99 @@ defmodule AshMssql.DataLayer do
     |> AshMssql.DataLayer.Info.custom_indexes()
     |> Enum.find(fn custom_index ->
       name = AshMssql.CustomIndex.name(table, custom_index)
-      name == searched_name
+      to_string(name) == to_string(searched_name)
     end)
   end
+
+  # Covers constraints declared via `unique_index_names` - typically UNIQUE KEY
+  # constraints created outside of Ash-generated migrations, whose names don't
+  # follow the `<table>_<identity>_index` convention.
+  defp find_unique_index_name(resource, context, searched_name) do
+    searched_name = to_string(searched_name)
+
+    resource
+    |> AshMssql.DataLayer.Info.unique_index_names()
+    |> resolve_configured_names(context)
+    |> Enum.find_value(fn
+      {keys, name} ->
+        if to_string(name) == searched_name do
+          %{fields: List.wrap(keys), message: nil}
+        end
+
+      {keys, name, message} ->
+        if to_string(name) == searched_name do
+          %{fields: List.wrap(keys), message: message}
+        end
+    end)
+  end
+
+  # Find the attribute whose database column matches `column` (attributes can
+  # be renamed with `source`).
+  defp find_attribute_by_source(resource, column) do
+    resource
+    |> Ash.Resource.Info.attributes()
+    |> Enum.find(fn attribute ->
+      to_string(Map.get(attribute, :source) || attribute.name) == column
+    end)
+  end
+
+  # Map a FOREIGN KEY constraint name back to the attribute that references
+  # the missing parent: explicitly configured `foreign_key_names` win, then
+  # the `references` DSL (falling back to the generator's default
+  # `<table>_<source_attribute>_fkey` naming).
+  defp find_foreign_key_field(resource, context, constraint_name) do
+    find_configured_foreign_key(resource, context, constraint_name) ||
+      find_reference_foreign_key(resource, constraint_name)
+  end
+
+  defp find_configured_foreign_key(resource, context, constraint_name) do
+    resource
+    |> AshMssql.DataLayer.Info.foreign_key_names()
+    |> resolve_configured_names(context)
+    |> Enum.find_value(fn
+      {key, name} ->
+        if to_string(name) == constraint_name do
+          %{field: key, message: nil}
+        end
+
+      {key, name, message} ->
+        if to_string(name) == constraint_name do
+          %{field: key, message: message}
+        end
+    end)
+  end
+
+  defp find_reference_foreign_key(resource, constraint_name) do
+    table = AshMssql.DataLayer.Info.table(resource)
+    references = AshMssql.DataLayer.Info.references(resource)
+
+    resource
+    |> Ash.Resource.Info.relationships()
+    |> Enum.filter(&(&1.type == :belongs_to))
+    |> Enum.find_value(fn relationship ->
+      name =
+        Enum.find_value(references, fn reference ->
+          if reference.relationship == relationship.name, do: reference.name
+        end) || "#{table}_#{relationship.source_attribute}_fkey"
+
+      if to_string(name) == constraint_name do
+        %{field: relationship.source_attribute, message: nil}
+      end
+    end)
+  end
+
+  defp resolve_configured_names({m, f, a}, %Ecto.Changeset{} = changeset) do
+    List.wrap(apply(m, f, [changeset | a]))
+  end
+
+  defp resolve_configured_names({m, f, a}, {:bulk_create, %Ecto.Changeset{} = changeset}) do
+    List.wrap(apply(m, f, [changeset | a]))
+  end
+
+  # An MFA needs a changeset to resolve; other contexts (e.g. queries) can't
+  # provide one, so configured names are unavailable there.
+  defp resolve_configured_names({_m, _f, _a}, _context), do: []
+  defp resolve_configured_names(value, _context), do: List.wrap(value)
 
   defp find_identity(resource, searched_index_name) do
     table = AshMssql.DataLayer.Info.table(resource)
